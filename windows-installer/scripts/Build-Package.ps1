@@ -22,7 +22,7 @@ try {
  if($LASTEXITCODE -ne 0 -or -not $modules){throw 'Cannot enumerate bundled JDK modules'}
  & (Join-Path $env:JAVA_HOME 'bin\jlink.exe') --add-modules $modules --strip-debug --no-header-files --no-man-pages --output $runtime
  if($LASTEXITCODE -ne 0){throw 'Runtime generation failed'}
- & (Join-Path $env:JAVA_HOME 'bin\jpackage.exe') --type app-image --name OnlinePOS --input $desktopInput --main-jar pos-desktop-0.1.0-SNAPSHOT.jar --main-class za.co.onlinepos.desktop.Launcher --runtime-image $runtime --dest $stage --java-options '--enable-native-access=ALL-UNNAMED' --win-console --app-version 0.2.0
+ & (Join-Path $env:JAVA_HOME 'bin\jpackage.exe') --type app-image --name OnlinePOS --input $desktopInput --main-jar pos-desktop-0.1.0-SNAPSHOT.jar --main-class za.co.onlinepos.desktop.Launcher --runtime-image $runtime --dest $stage --java-options '--enable-native-access=ALL-UNNAMED' --win-console --app-version 0.3.0
  if($LASTEXITCODE -ne 0){throw 'JavaFX image generation failed'}
  New-Item (Join-Path $stage 'server') -ItemType Directory|Out-Null
  Copy-Item 'store-server\target\store-server-0.1.0-SNAPSHOT-exec.jar' (Join-Path $stage 'server\store-server.jar')
@@ -34,7 +34,7 @@ try {
  $compiler=Join-Path $out 'inno'
  $install=Start-Process $inno -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$compiler")
  if($install.ExitCode -ne 0){throw 'Inno Setup installation failed'}
- $manifest=@{channel=$Channel;version='0.2.0';jdk=(Get-Content (Join-Path $env:JAVA_HOME 'release') -Raw);files=@()}
+ $manifest=@{channel=$Channel;version='0.3.0';jdk=(Get-Content (Join-Path $env:JAVA_HOME 'release') -Raw);files=@()}
  foreach($file in Get-ChildItem $stage -File -Recurse){
   $manifest.files+=@{path=$file.FullName.Substring($stage.Length+1);sha256=(Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
  }
@@ -45,7 +45,7 @@ try {
   $sdk=Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Windows Kits\10\bin\*\x64\signtool.exe'
   $sign=Get-ChildItem $sdk|Sort-Object FullName -Descending|Select-Object -First 1
   if(-not $sign){throw 'Windows SDK signing tool required'}
-  & $sign.FullName sign /sha1 $env:ONLINEPOS_SIGNING_THUMBPRINT /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 (Join-Path $out 'OnlinePOS-0.2.0-Production.exe')
+  & $sign.FullName sign /sha1 $env:ONLINEPOS_SIGNING_THUMBPRINT /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 (Join-Path $out 'OnlinePOS-0.3.0-Production.exe')
   if($LASTEXITCODE -ne 0){throw 'Installer signing failed'}
  }
  Get-ChildItem $out -Filter '*.exe'|ForEach-Object{(Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()+'  '+$_.Name}|Set-Content (Join-Path $out 'SHA256SUMS.txt') -Encoding ASCII

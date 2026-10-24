@@ -30,6 +30,19 @@ public final class InstalledTls {
     config.put("server.ssl.key-store-password", password);
     config.put("server.ssl.trust-store", runtime.resolve("trust.p12").toUri().toString());
     config.put("server.ssl.trust-store-password", password);
+    var installed =
+        new za.co.onlinepos.installation.FileInstallationRepository(root).load().orElseThrow();
+    config.put("pos.branch-id", installed.branchId());
+    config.put("pos.cluster-id", installed.clusterId());
+    config.put("pos.installation-id", installed.installationId());
+    config.put(
+        "pos.database.url",
+        "jdbc:postgresql://127.0.0.1:"
+            + za.co.onlinepos.installation.NetworkSettings.load(root).postgresPort()
+            + "/pos_store");
+    config.put(
+        "pos.database.password",
+        new String(secrets.get("database-runtime"), java.nio.charset.StandardCharsets.UTF_8));
     return config;
   }
 }

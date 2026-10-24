@@ -4,9 +4,18 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
 
-@SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
+@SpringBootApplication(
+    exclude = {
+      UserDetailsServiceAutoConfiguration.class,
+      org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration.class,
+      org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration.class
+    })
 public class StoreServerApplication {
   public static void main(String[] args) throws Exception {
+    if (java.util.Arrays.stream(args).anyMatch(arg -> arg.startsWith("--database-tool="))) {
+      DatabaseTool.main(args);
+      return;
+    }
     boolean installed =
         java.util.Arrays.asList(args).contains("--spring.profiles.active=installed");
     SpringApplication application = new SpringApplication(StoreServerApplication.class);

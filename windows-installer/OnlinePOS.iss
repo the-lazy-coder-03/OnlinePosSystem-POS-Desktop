@@ -4,11 +4,11 @@
 [Setup]
 AppId={{B61A5417-6832-4693-AE78-410A7BCA04C2}
 AppName=OnlinePOS ({#Channel})
-AppVersion=0.2.0
+AppVersion=0.3.0
 DefaultDirName={autopf}\OnlinePOS
 DefaultGroupName=OnlinePOS
 OutputDir={#OutputDir}
-OutputBaseFilename=OnlinePOS-0.2.0-{#Channel}
+OutputBaseFilename=OnlinePOS-0.3.0-{#Channel}
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0

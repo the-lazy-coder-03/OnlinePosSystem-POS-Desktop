@@ -49,11 +49,18 @@ public final class TerminalAuthenticationFilter extends OncePerRequestFilter {
     var certificates =
         (X509Certificate[]) request.getAttribute("jakarta.servlet.request.X509Certificate");
     try {
-      if (certificates != null && certificates.length > 0 && registry.authorized(certificates[0]))
+      if (certificates != null && certificates.length > 0 && registry.authorized(certificates[0])) {
+        request.setAttribute(
+            "pos.terminal",
+            java.util.HexFormat.of()
+                .formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(certificates[0].getEncoded())));
         SecurityContextHolder.getContext()
             .setAuthentication(
                 new UsernamePasswordAuthenticationToken(
                     certificates[0].getSubjectX500Principal().getName(), null, List.of()));
+      }
     } catch (Exception exception) {
       response.sendError(403);
       return;

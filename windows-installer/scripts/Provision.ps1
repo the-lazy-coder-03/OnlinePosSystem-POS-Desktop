@@ -173,10 +173,16 @@ GRANT CONNECT ON DATABASE pos_store TO pos_runtime;
       if ($LASTEXITCODE -ne 0) { throw 'Application database role provisioning failed' }
     } finally { Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue; [Array]::Clear($bundle,0,$bundle.Length);$credentials=$null;$sql=$null }
   }
+  if ($role -eq 'MASTER') {
+    # Owner credentials stay in the elevated helper; the service receives runtime credentials only.
+    if((Get-Service OnlinePOSStore -ErrorAction SilentlyContinue).Status -eq 'Running'){Stop-Service OnlinePOSStore}
+    & $java -jar (Join-Path $program 'server\store-server.jar') '--database-tool=migrate'
+    if($LASTEXITCODE -ne 0){throw 'Local database migration failed; backend remains stopped'}
+  }
   $service = Join-Path $program 'server\OnlinePOSStore.exe'
   $xml = @"
 <service><id>OnlinePOSStore</id><name>OnlinePOS Store Backend</name>
-<description>OnlinePOS local HTTPS installation service. Sales remain unavailable in Stage 2.</description>
+<description>OnlinePOS local HTTPS installation service. Stage 3 local database and draft APIs; sales remain unavailable.</description>
 <executable>$java</executable><arguments>-jar &quot;$program\server\store-server.jar&quot; --spring.profiles.active=installed</arguments>
 <env name="POS_DATA_ROOT" value="$data"/><logpath>$data\logs</logpath>
 <log mode="roll"/><onfailure action="restart" delay="10 sec"/><stoptimeout>30 sec</stoptimeout>
@@ -199,7 +205,7 @@ GRANT CONNECT ON DATABASE pos_store TO pos_runtime;
   }
   $secretDirectory=Join-Path $data 'secrets'
   if(Test-Path $secretDirectory){ & icacls.exe $secretDirectory /grant 'NT SERVICE\OnlinePOSStore:(RX)' | Out-Null }
-  foreach($secretName in @('ca-key','ca-certificate','pki-password','server-p12','trust-p12')){
+  foreach($secretName in @('ca-key','ca-certificate','pki-password','server-p12','trust-p12','database-runtime')){
     $serviceSecret=Join-Path $secretDirectory ($secretName+'.dpapi')
     if(Test-Path $serviceSecret){ & icacls.exe $serviceSecret /grant 'NT SERVICE\OnlinePOSStore:R' | Out-Null }
   }

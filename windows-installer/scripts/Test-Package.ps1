@@ -1,7 +1,7 @@
 $ErrorActionPreference='Stop'
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $out=Join-Path $root 'windows-installer\target'
-$installer=Join-Path $out 'OnlinePOS-0.2.0-Development.exe'
+$installer=Join-Path $out 'OnlinePOS-0.3.0-Development.exe'
 $program=Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'OnlinePOS'
 $data=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'OnlinePOS'
 function Install-Role([string]$Role) {
@@ -88,7 +88,12 @@ try{
   $grants=& $pg -X -h 127.0.0.1 -p 55432 -U pos_bootstrap -d pos_store -At -c "SELECT count(*) FROM pg_roles WHERE rolname IN ('pos_owner','pos_runtime') AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole"
   if($LASTEXITCODE -ne 0 -or $grants -ne '2'){throw 'Incorrect PostgreSQL role grants'}
   $tables=& $pg -X -h 127.0.0.1 -p 55432 -U pos_bootstrap -d pos_store -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"
-  if($LASTEXITCODE -ne 0 -or $tables -ne '0'){throw 'Stage 2 created business tables'}
+  if($LASTEXITCODE -ne 0 -or $tables -ne '1'){throw 'Expected Flyway history only in public schema'}
+  $localTables=& $pg -X -h 127.0.0.1 -p 55432 -U pos_bootstrap -d pos_store -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='pos'"
+  if($LASTEXITCODE -ne 0 -or [int]$localTables -lt 15){throw 'Stage 3 local schema missing'}
+  $runtimeDdl=& $pg -X -h 127.0.0.1 -p 55432 -U pos_bootstrap -d pos_store -At -c "SELECT has_schema_privilege('pos_runtime','pos','CREATE')"
+  if($runtimeDdl -ne 'f'){throw 'Runtime can create schema objects'}
+  Write-Output 'WINDOWS_STAGE3_MIGRATIONS_RUNTIME_GRANTS_OK'
  }finally{Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue}
  $cachePath=Join-Path $data 'downloads'
  if(-not(Test-Path $cachePath)){throw 'Elevated setup did not use the protected machine cache'}
