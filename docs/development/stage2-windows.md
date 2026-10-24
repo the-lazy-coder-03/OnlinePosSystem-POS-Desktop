@@ -20,7 +20,7 @@ during initial Master or Backup component setup; Java runtime and backend are bu
 Choose Master components in the installer, then configure Master in JavaFX. Windows elevation applies
 to the helper, not the ordinary JavaFX process. Same-account UAC consent is the supported Stage 2 path;
 over-the-shoulder elevation under a different administrator must fail safely if the request cannot be read.
-Use at least 12 characters for the installation administrator; it is separate from future staff login.
+The user-approved minimum is 5 characters (revised from the original Stage 2 plan). Use at least 5 characters for the installation administrator; it is separate from future staff login.
 
 Default HTTPS port is 8443, PostgreSQL 55432. Before provisioning, an administrator may create
 C:\ProgramData\OnlinePOS\network.json with httpsPort/postgresPort (distinct integers 1024–65535) and optional storeSubnet,

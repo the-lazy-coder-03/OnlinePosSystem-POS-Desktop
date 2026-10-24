@@ -140,7 +140,7 @@ final class SetupWizard extends BorderPane {
               + (selection.role() == InstallationRole.MASTER ? "Master" : "Slave"));
       summary.getStyleClass().add("summary");
       javafx.scene.control.PasswordField administrator = new javafx.scene.control.PasswordField();
-      administrator.setPromptText("Installation administrator password (12+ characters)");
+      administrator.setPromptText("Installation administrator password (5+ characters)");
       javafx.scene.control.TextArea invitation = new javafx.scene.control.TextArea();
       invitation.setPromptText("Slave: paste the pairing invitation JSON from your Master");
       javafx.scene.control.TextField masterAddress = new javafx.scene.control.TextField();
@@ -178,9 +178,9 @@ final class SetupWizard extends BorderPane {
           event -> {
             char[] password = administrator.getText().toCharArray();
             administrator.clear();
-            if (password.length < 12) {
+            if (password.length < 5) {
               java.util.Arrays.fill(password, '\0');
-              progress.setText("Enter an administrator password of at least 12 characters.");
+              progress.setText("Enter an administrator password of at least 5 characters.");
               return;
             }
             install.setDisable(true);

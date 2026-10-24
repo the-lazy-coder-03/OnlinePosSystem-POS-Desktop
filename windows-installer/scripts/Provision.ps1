@@ -51,13 +51,26 @@ if ($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER') {
   Write-Output 'MICROSOFT_RUNTIME_READY'
   $archive = & (Join-Path $PSScriptRoot 'Dependencies.ps1') -Name postgres
   Write-Output 'POSTGRES_PAYLOAD_VERIFIED'
-  if (-not (Test-Path (Join-Path $program 'postgres\pgsql\bin\postgres.exe'))) {
-    New-Item (Join-Path $program 'postgres') -ItemType Directory -Force | Out-Null
-    # PowerShell 5 Expand-Archive is very slow on the vendor's many small files.
-    # Windows 10/11 includes bsdtar; extract only PostgreSQL runtime components, not pgAdmin/docs.
-    & (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $archive -C (Join-Path $program 'postgres') 'pgsql/bin' 'pgsql/lib' 'pgsql/share'
-    if($LASTEXITCODE -ne 0){throw 'PostgreSQL runtime extraction failed'}
+  $postgresRoot=Join-Path $program 'postgres'
+  $payloadMarker=Join-Path $postgresRoot '.runtime.sha256'
+  $payloadHash=((Get-Content (Join-Path $program 'dependencies.json') -Raw|ConvertFrom-Json).postgres.sha256)
+  $runtimeReady=(Test-Path $payloadMarker) -and ((Get-Content $payloadMarker -Raw).Trim() -eq $payloadHash)
+  foreach($requiredBinary in @('postgres.exe','initdb.exe','pg_ctl.exe','psql.exe')){
+    if(-not(Test-Path (Join-Path $postgresRoot ('pgsql\bin\'+$requiredBinary)))){$runtimeReady=$false}
   }
+  if (-not $runtimeReady) {
+    if((Get-Service OnlinePOSPostgres -ErrorAction SilentlyContinue).Status -eq 'Running'){throw 'Stop the app-owned PostgreSQL service before repairing runtime binaries'}
+    New-Item $postgresRoot -ItemType Directory -Force | Out-Null
+    # Extract only runtime components and their notices; omit the unrelated pgAdmin distribution.
+    & (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $archive -C $postgresRoot 'pgsql/bin' 'pgsql/lib' 'pgsql/share' 'pgsql/server_license.txt' 'pgsql/commandlinetools_3rd_party_licenses.txt'
+    if($LASTEXITCODE -ne 0){throw 'PostgreSQL runtime extraction failed; retry preserves the database'}
+    foreach($requiredBinary in @('postgres.exe','initdb.exe','pg_ctl.exe','psql.exe')){
+      if(-not(Test-Path (Join-Path $postgresRoot ('pgsql\bin\'+$requiredBinary)))){throw 'PostgreSQL runtime is incomplete'}
+    }
+    # A partial extraction is never considered ready on retry.
+    [IO.File]::WriteAllText($payloadMarker,$payloadHash,[Text.Encoding]::ASCII)
+  }
+  Write-Output 'POSTGRES_RUNTIME_READY'
   $bin = Join-Path $program 'postgres\pgsql\bin'
   $pgdata = Join-Path $data 'postgres-data'
   if ($role -eq 'MASTER') {

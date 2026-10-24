@@ -11,7 +11,7 @@ import za.co.onlinepos.contracts.InstallationRole;
 class InstallationServiceTest {
   @Test
   void injectedAdapterFailureDoesNotLeaveCallerPasswordInMemory() {
-    char[] password = UUID.randomUUID().toString().toCharArray();
+    char[] password = UUID.randomUUID().toString().substring(0, 5).toCharArray();
     InstallationService service =
         new DefaultInstallationService(
             (request, secret) -> {

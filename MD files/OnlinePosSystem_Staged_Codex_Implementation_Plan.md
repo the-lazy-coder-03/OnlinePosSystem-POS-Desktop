@@ -135,6 +135,10 @@ private Windows CI artifacts are authorized; production signing and Windows 10/1
 remain separate release gates. No business schema, staff accounts, sales, H2 order persistence,
 cloud synchronisation or replication is authorized in this stage.
 
+**Installation administrator refinement (24 October 2026):** The user selected a five-character
+minimum. Enforce it consistently in JavaFX and the protected helper; retain PBKDF2 verification,
+persistent retry limits and separate Windows elevation. This credential is not a staff account.
+
 **Dependency injection and boundaries:**
 - Start one Weld SE container in JavaFX startup; close it on normal shutdown and failed startup.
   JavaFX owns Application/Stage and all control construction stays on the JavaFX Application Thread.
