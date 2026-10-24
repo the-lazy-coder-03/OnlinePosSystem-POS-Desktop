@@ -43,9 +43,14 @@ Add-Content $journal ('Prepared role '+$role+' at '+[DateTime]::UtcNow.ToString(
 if ($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER') {
   if (-not (Test-Path (Join-Path $program 'server\store-server.jar'))) { throw 'Re-run the installer with Master components before this role change' }
   $vc = & (Join-Path $PSScriptRoot 'Dependencies.ps1') -Name vcredist
-  $vcProcess=Start-Process $vc -Wait -PassThru -ArgumentList @('/install','/quiet','/norestart')
+  $vcProcess=Start-Process $vc -PassThru -ArgumentList @('/install','/quiet','/norestart')
+  $vcHandle=$vcProcess.Handle
+  if(-not $vcProcess.WaitForExit(180000)){throw 'Microsoft runtime setup has not completed; allow it to finish before retrying'}
+  $vcProcess.Refresh()
   if($vcProcess.ExitCode -notin @(0,1638,3010)){throw 'Verified Microsoft runtime installation failed'}
+  Write-Output 'MICROSOFT_RUNTIME_READY'
   $archive = & (Join-Path $PSScriptRoot 'Dependencies.ps1') -Name postgres
+  Write-Output 'POSTGRES_PAYLOAD_VERIFIED'
   if (-not (Test-Path (Join-Path $program 'postgres\pgsql\bin\postgres.exe'))) {
     New-Item (Join-Path $program 'postgres') -ItemType Directory -Force | Out-Null
     Expand-Archive $archive (Join-Path $program 'postgres') -Force
