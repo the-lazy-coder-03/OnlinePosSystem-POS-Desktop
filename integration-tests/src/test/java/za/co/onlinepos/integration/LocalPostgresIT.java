@@ -100,6 +100,17 @@ class LocalPostgresIT {
   @Test
   void migrationsAreRepeatableBoundToInstallationAndRuntimeCannotChangeSchemaOrAudit() {
     DatabaseTool.migrate(OWNER, IDENTITY);
+    Integer checksum =
+        ADMIN.queryForObject(
+            "SELECT checksum FROM public.flyway_schema_history WHERE version='1'", Integer.class);
+    try {
+      ADMIN.update("UPDATE public.flyway_schema_history SET checksum=0 WHERE version='1'");
+      assertThrows(
+          org.flywaydb.core.api.FlywayException.class, () -> DatabaseTool.migrate(OWNER, IDENTITY));
+    } finally {
+      ADMIN.update(
+          "UPDATE public.flyway_schema_history SET checksum=? WHERE version='1'", checksum);
+    }
     assertThrows(
         IllegalStateException.class,
         () ->
@@ -226,6 +237,14 @@ class LocalPostgresIT {
                 manager,
                 PRICE,
                 new LocalCommands.PriceEdit(UUID.randomUUID(), 1, new BigDecimal("32.001"), true)));
+    assertThrows(
+        LocalFailure.class,
+        () ->
+            operations.price(
+                manager,
+                PRICE,
+                new LocalCommands.PriceEdit(
+                    UUID.randomUUID(), 1, new BigDecimal("1e999999999"), true)));
     assertEquals(1, runtime.queryForObject("SELECT count(*) FROM pos.outbox_event", Integer.class));
     assertEquals(
         1, runtime.queryForObject("SELECT count(*) FROM pos.command_receipt", Integer.class));

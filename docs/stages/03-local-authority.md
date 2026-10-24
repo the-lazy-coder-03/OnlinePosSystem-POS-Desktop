@@ -65,9 +65,9 @@ are created only by integration tests in disposable PostgreSQL databases; produc
 Local `./mvnw -B -ntp install` passed with PostgreSQL 16.15 on macOS ARM64, JDK 25, format, Checkstyle,
 architecture rules and all available tests. Ten PostgreSQL integration scenarios cover:
 
-1. Repeat migration, wrong installation, runtime DDL/audit/delete denial, cross-branch foreign keys and one-time bootstrap.
+1. Repeat migration, checksum tampering, wrong installation, runtime DDL/audit/delete denial, cross-branch foreign keys and one-time bootstrap.
 2. HTTP staff authentication, role and branch checks, login lockout, logout and unavailable sale routes.
-3. Command replay, payload collision, stale revisions and fractional-cent rejection.
+3. Command replay, payload collision, stale revisions, fractional-cent and excessive-exponent rejection.
 4. Concurrent price edits with exactly one winner and committed stream consistency.
 5. Original draft UUID, immutable charged-price snapshots, stale quotes and cancellation/retry.
 6. Staff command retries/collisions, session invalidation, stale actor rejection, last-manager protection and verifier redaction.
