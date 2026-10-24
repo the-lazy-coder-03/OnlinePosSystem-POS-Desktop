@@ -15,10 +15,15 @@ import za.co.onlinepos.installation.TerminalRegistry;
 public class InstalledEndpoints {
   private final Installation identity;
   private final TerminalRegistry registry;
+  private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
-  public InstalledEndpoints(Installation identity, TerminalRegistry registry) {
+  public InstalledEndpoints(
+      Installation identity,
+      TerminalRegistry registry,
+      org.springframework.jdbc.core.JdbcTemplate jdbc) {
     this.identity = identity;
     this.registry = registry;
+    this.jdbc = jdbc;
   }
 
   @GetMapping("/api/local/identity")
@@ -33,7 +38,15 @@ public class InstalledEndpoints {
 
   @GetMapping("/api/local/diagnostics")
   public Map<String, String> diagnostics() {
+    String database;
+    try {
+      database = jdbc.queryForObject("SELECT 1", Integer.class) == 1 ? "READY" : "UNAVAILABLE";
+    } catch (org.springframework.dao.DataAccessException exception) {
+      database = "UNAVAILABLE";
+    }
     return Map.of(
+        "database",
+        database,
         "installation",
         identity.state(),
         "role",

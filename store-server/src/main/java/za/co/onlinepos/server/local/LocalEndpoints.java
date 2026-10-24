@@ -50,6 +50,11 @@ public class LocalEndpoints {
     return actor(request);
   }
 
+  @GetMapping("/api/local/menu")
+  public List<Map<String, Object>> boundMenu() {
+    return operations.menu();
+  }
+
   @GetMapping("/api/local/branches/{branch}/menu")
   public List<Map<String, Object>> menu(@PathVariable("branch") int branch) {
     operations.branch(branch);

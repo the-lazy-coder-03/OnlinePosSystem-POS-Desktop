@@ -150,6 +150,7 @@ public class StaffService {
     CommandJournal.requireUuid(edit.staffId());
     if (edit.username() == null
         || !edit.username().matches("[a-z0-9._-]{3,64}")
+        || edit.role() == null
         || !List.of("MANAGER", "CASHIER").contains(edit.role())
         || edit.expectedRevision() < 0) throw new LocalFailure(400, "Invalid staff fields");
     String hash = null;

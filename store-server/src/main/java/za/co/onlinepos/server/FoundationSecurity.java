@@ -57,6 +57,7 @@ public class FoundationSecurity {
                       .requestMatchers(HttpMethod.POST, "/api/local/auth/login")
                       .hasAuthority("POS_TERMINAL")
                       .requestMatchers(
+                          "/api/local/menu",
                           "/api/local/auth/me",
                           "/api/local/auth/logout",
                           "/api/local/branches/*/menu",

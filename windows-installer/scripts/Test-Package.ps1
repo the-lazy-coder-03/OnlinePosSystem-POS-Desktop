@@ -100,7 +100,22 @@ try{
  foreach($rule in (Get-Acl $cachePath).Access){
   if($rule.AccessControlType -eq 'Allow' -and ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write) -and $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin @('S-1-5-18','S-1-5-32-544')){throw 'Payload cache permits untrusted writes'}
  }
- Write-Output 'WINDOWS_MASTER_INSTALL_REPAIR_GRANTS_FIREWALL_OK'
+ # Bootstrap staff through the protected owner console, then call the real installed TLS API.
+ $staffPassword=([guid]::NewGuid()).ToString()
+ try {
+  ($password+"`n"+$staffPassword) | & (Join-Path $program 'desktop\runtime\bin\java.exe') -jar (Join-Path $program 'server\store-server.jar') '--database-tool=bootstrap-staff' '--username=ci.manager'
+  if($LASTEXITCODE -ne 0){throw 'Protected staff bootstrap failed'}
+  $classes=Join-Path $out 'stage3-test-client';New-Item $classes -ItemType Directory -Force|Out-Null
+  $clientPath=Join-Path $program 'desktop\app\*'
+  & (Join-Path $env:JAVA_HOME 'bin\javac.exe') -cp $clientPath -d $classes (Join-Path $root 'tools\WindowsStaffSmoke.java')
+  if($LASTEXITCODE -ne 0){throw 'Cannot compile the isolated test client'}
+  $staffPassword | & (Join-Path $program 'desktop\runtime\bin\java.exe') -cp ($classes+';'+$clientPath) WindowsStaffSmoke
+  if($LASTEXITCODE -ne 0){throw 'Installed staff TLS API failed'}
+  $password | & (Join-Path $program 'setup\Local-Database.ps1') -Operation Backup
+  if($LASTEXITCODE -ne 0 -or -not(Get-ChildItem (Join-Path $data 'backups') -Filter '*.dpapi')){throw 'Protected encrypted backup failed'}
+  if(Get-ChildItem (Join-Path $data 'backups') -Filter '*.dump'){throw 'Successful backup retained plaintext'}
+ }finally{$staffPassword=$null}
+ Write-Output 'WINDOWS_MASTER_INSTALL_REPAIR_GRANTS_FIREWALL_OK' 
  $masterUninstall=Start-Process (Join-Path $program 'unins000.exe') -Wait -PassThru -ArgumentList '/VERYSILENT'
  if($masterUninstall.ExitCode -ne 0){throw 'Configured Master uninstall failed'}
  if(-not(Test-Path (Join-Path $data 'postgres-data\PG_VERSION')) -or -not(Test-Path (Join-Path $data 'secrets\database-bundle.dpapi'))){throw 'Master uninstall removed database or keys'}

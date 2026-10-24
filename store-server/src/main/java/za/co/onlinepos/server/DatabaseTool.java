@@ -122,6 +122,21 @@ public final class DatabaseTool {
   }
 
   public static void main(String[] args) throws Exception {
+    if (System.getProperty("os.name").startsWith("Windows")) {
+      try (var channel =
+              java.nio.channels.FileChannel.open(
+                  InstalledConfiguration.dataRoot().resolve("management.lock"),
+                  java.nio.file.StandardOpenOption.CREATE,
+                  java.nio.file.StandardOpenOption.WRITE);
+          var held = channel.lock()) {
+        run(args);
+      }
+    } else {
+      run(args);
+    }
+  }
+
+  private static void run(String[] args) throws Exception {
     try {
       String operation =
           Arrays.stream(args)

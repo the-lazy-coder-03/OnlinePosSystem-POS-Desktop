@@ -143,6 +143,24 @@ class LocalPostgresIT {
                 .contentType("application/json")
                 .content("{}"))
         .andExpect(status().isForbidden());
+    http.perform(
+            post("/api/local/auth/login")
+                .contentType("application/json")
+                .content(json.writeValueAsString(new StaffService.Login("manager", PASSWORD))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.role").value("MANAGER"));
+    http.perform(get("/api/local/menu").header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk());
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/staff")
+                .header("Authorization", "Bearer " + token)
+                .contentType("application/json")
+                .content(
+                    json.writeValueAsString(
+                        new StaffService.StaffEdit(
+                            UUID.randomUUID(), "invalid", null, true, 0, PASSWORD))))
+        .andExpect(status().isBadRequest());
     UUID cashier = UUID.randomUUID();
     staff.edit(
         manager, new StaffService.StaffEdit(cashier, "cashier", "CASHIER", true, 0, PASSWORD));
@@ -394,6 +412,11 @@ class LocalPostgresIT {
           restored.queryForObject("SELECT amount FROM pos.branch_price", BigDecimal.class));
       assertEquals(
           1, restored.queryForObject("SELECT count(*) FROM pos.outbox_event", Integer.class));
+      assertEquals(
+          ADMIN.queryForObject(
+              "SELECT password_hash FROM pos.staff WHERE username='manager'", String.class),
+          restored.queryForObject(
+              "SELECT password_hash FROM pos.staff WHERE username='manager'", String.class));
     } finally {
       java.nio.file.Files.deleteIfExists(file);
     }
