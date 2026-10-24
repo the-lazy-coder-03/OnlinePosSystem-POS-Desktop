@@ -2,11 +2,12 @@ name: POS build and Windows setup
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: pos-${{ github.head_ref || github.ref_name }}
+  group: pos-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -28,6 +29,15 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
+      - name: Parse Windows setup scripts
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          foreach ($script in Get-ChildItem windows-installer/scripts/*.ps1) {
+            $tokens=$null; $parseErrors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile($script.FullName,[ref]$tokens,[ref]$parseErrors) | Out-Null
+            if ($parseErrors) { throw ($parseErrors | Out-String) }
+          }
       - name: Build, format, analyse and test (Linux)
         if: runner.os == 'Linux'
         run: ./mvnw -B -ntp clean install

@@ -11,9 +11,8 @@ public final class DefaultInstallationService implements InstallationService {
 
   public void install(SetupRequest request, char[] password) throws Exception {
     try {
-      if (password.length < 12)
-        throw new IllegalArgumentException(
-            "Administrator password requires at least 12 characters");
+      if (password.length < 5)
+        throw new IllegalArgumentException("Administrator password requires at least 5 characters");
       SetupRequest effective = request;
       if (!request.masterAddress().isBlank()) {
         Pairing.Invitation original =

@@ -13,14 +13,16 @@ SDK signtool; no signing identity is supplied and no production release is appro
 
 dependencies.json pins the Inno 6.7.3, WinSW 2.12.0, PostgreSQL 16.15 and Microsoft VC runtime payloads
 by immutable source URL and SHA-256. Mismatches block execution. The package includes a JDK/runtime
-inventory, application-file manifest and installer SHA256SUMS. PostgreSQL/VC dependencies download
-during initial Master or Backup component setup; Java runtime and backend are bundled.
+inventory, application-file manifest and installer SHA256SUMS. Only PostgreSQL bin/lib/share and license notices are extracted; pgAdmin is omitted. A completion marker
+allows safe retry after interrupted runtime extraction. PostgreSQL/VC dependencies download
+during initial Master or Backup component setup; Java runtime and backend are bundled. Elevated setup
+uses the administrator-protected ProgramData\OnlinePOS\downloads cache.
 
 ## Master
 Choose Master components in the installer, then configure Master in JavaFX. Windows elevation applies
 to the helper, not the ordinary JavaFX process. Same-account UAC consent is the supported Stage 2 path;
 over-the-shoulder elevation under a different administrator must fail safely if the request cannot be read.
-Use at least 12 characters for the installation administrator; it is separate from future staff login.
+The user-approved minimum is 5 characters (revised from the original Stage 2 plan). Use at least 5 characters for the installation administrator; it is separate from future staff login.
 
 Default HTTPS port is 8443, PostgreSQL 55432. Before provisioning, an administrator may create
 C:\ProgramData\OnlinePOS\network.json with httpsPort/postgresPort (distinct integers 1024–65535) and optional storeSubnet,
@@ -32,7 +34,7 @@ Firewall access is limited to the Private profile and LocalSubnet. Set storeSubn
 network during setup; do not open it on Public profiles or expose PostgreSQL.
 
 PostgreSQL is a dedicated cluster, loopback-only, with SCRAM, bootstrap/owner/runtime identities,
-a pos_store database and no business tables. Backend and database services use LocalService with
+a pos_store database and no business tables. Backend and database services use distinct NT SERVICE virtual accounts with
 service-specific filesystem permissions. Service restart is automatic; no staff session is required.
 
 ## Slave pairing and management

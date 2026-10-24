@@ -24,7 +24,7 @@ public final class Administrator {
 
   public synchronized void initialize(char[] password) throws IOException {
     if (Files.exists(file)) throw new IllegalStateException("Administrator already enrolled");
-    if (password.length < 12) throw new IllegalArgumentException("Use at least 12 characters");
+    if (password.length < 5) throw new IllegalArgumentException("Use at least 5 characters");
     byte[] salt = new byte[24];
     new SecureRandom().nextBytes(salt);
     JsonFiles.write(

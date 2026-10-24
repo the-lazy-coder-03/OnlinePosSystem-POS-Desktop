@@ -49,10 +49,10 @@ class InstallationSecurityTest {
   }
 
   @Test
-  void administratorRejectsWeakCredentialsAndPersistsAttemptLock() throws Exception {
+  void administratorEnforcesApprovedMinimumAndPersistsAttemptLock() throws Exception {
     var admin = new Administrator(root, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
-    assertThrows(IllegalArgumentException.class, () -> admin.initialize(new char[3]));
-    char[] correct = UUID.randomUUID().toString().toCharArray();
+    assertThrows(IllegalArgumentException.class, () -> admin.initialize(new char[4]));
+    char[] correct = UUID.randomUUID().toString().substring(0, 5).toCharArray();
     admin.initialize(correct);
     admin.verify(correct);
     for (int i = 0; i < 5; i++)

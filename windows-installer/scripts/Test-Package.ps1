@@ -33,6 +33,8 @@ $backupRequest=Join-Path $backupRequests (([guid]::NewGuid()).ToString()+'.dpapi
 $backupPassword=([guid]::NewGuid()).ToString()
 $backupBody=@{request=@{branchId=1;role='BACKUP_MASTER';terminalName='CI Backup';invitation=''};administratorPassword=$backupPassword}|ConvertTo-Json -Depth 5
 $backupPlain=[Text.Encoding]::UTF8.GetBytes($backupBody)
+# A pre-existing explicit permissive grant must be replaced before secrets are created.
+& icacls.exe $data /grant '*S-1-1-0:(OI)(CI)M' | Out-Null
 try {
  [IO.File]::WriteAllBytes($backupRequest,[Security.Cryptography.ProtectedData]::Protect($backupPlain,$null,[Security.Cryptography.DataProtectionScope]::LocalMachine))
  & (Join-Path $program 'setup\Provision.ps1') -RequestPath $backupRequest
@@ -41,6 +43,7 @@ try {
  if($backupIdentity.state -ne 'STANDBY_UNSEEDED' -or (Get-Service OnlinePOSStore).StartType -ne 'Disabled'){throw 'Backup was not kept inactive'}
  if(Get-Service OnlinePOSPostgres -ErrorAction SilentlyContinue){throw 'Backup initialized a PostgreSQL service'}
  if(Test-Path (Join-Path $data 'postgres-data\PG_VERSION')){throw 'Backup initialized a database'}
+ if((Get-Acl $data).Access|Where-Object {$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq 'S-1-1-0'}){throw 'Setup retained a permissive Everyone grant'}
  Write-Output 'WINDOWS_BACKUP_INACTIVE_UNSEEDED_OK'
 } finally {
  Remove-Item $backupRequest -Force -ErrorAction SilentlyContinue
@@ -54,7 +57,7 @@ Install-Role 'master'
 Add-Type -AssemblyName System.Security
 $requests=Join-Path $env:LOCALAPPDATA 'OnlinePOS\requests';New-Item $requests -ItemType Directory -Force|Out-Null
 $request=Join-Path $requests (([guid]::NewGuid()).ToString()+'.dpapi')
-$password=([guid]::NewGuid()).ToString()
+$password=([guid]::NewGuid()).ToString().Substring(0,5)
 $body=@{request=@{branchId=1;role='MASTER';terminalName='CI Master';invitation=''};administratorPassword=$password}|ConvertTo-Json -Depth 5
 $plain=[Text.Encoding]::UTF8.GetBytes($body)
 try{
@@ -66,6 +69,7 @@ try{
  if($identity.state -ne 'INSTALLED' -or $identity.role -ne 'MASTER'){throw 'Wrong installation state'}
  foreach($service in @('OnlinePOSStore','OnlinePOSPostgres')){
   if((Get-Service $service).Status -ne 'Running'){throw "Service not running: $service"}
+  if((Get-CimInstance Win32_Service -Filter "Name='$service'").StartName -ne ('NT SERVICE\'+$service)){throw 'Service does not use its dedicated virtual account'}
   Restart-Service $service
  }
  & (Join-Path $program 'desktop\runtime\bin\java.exe') -cp (Join-Path $program 'desktop\app\*') za.co.onlinepos.installation.SetupTool pair-local
@@ -86,7 +90,25 @@ try{
   $tables=& $pg -X -h 127.0.0.1 -p 55432 -U pos_bootstrap -d pos_store -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"
   if($LASTEXITCODE -ne 0 -or $tables -ne '0'){throw 'Stage 2 created business tables'}
  }finally{Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue}
+ $cachePath=Join-Path $data 'downloads'
+ if(-not(Test-Path $cachePath)){throw 'Elevated setup did not use the protected machine cache'}
+ foreach($rule in (Get-Acl $cachePath).Access){
+  if($rule.AccessControlType -eq 'Allow' -and ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write) -and $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin @('S-1-5-18','S-1-5-32-544')){throw 'Payload cache permits untrusted writes'}
+ }
  Write-Output 'WINDOWS_MASTER_INSTALL_REPAIR_GRANTS_FIREWALL_OK'
+ $masterUninstall=Start-Process (Join-Path $program 'unins000.exe') -Wait -PassThru -ArgumentList '/VERYSILENT'
+ if($masterUninstall.ExitCode -ne 0){throw 'Configured Master uninstall failed'}
+ if(-not(Test-Path (Join-Path $data 'postgres-data\PG_VERSION')) -or -not(Test-Path (Join-Path $data 'secrets\database-bundle.dpapi'))){throw 'Master uninstall removed database or keys'}
+ foreach($service in @('OnlinePOSStore','OnlinePOSPostgres')){
+  if(Get-CimInstance Win32_Service -Filter "Name='$service'"){throw 'Uninstall retained an app-owned service'}
+ }
+ if(Test-Path (Join-Path $program 'postgres')){throw 'Uninstall retained marked runtime binaries'}
+ Install-Role 'master'
+ & (Join-Path $program 'setup\Provision.ps1') -RequestPath $request
+ if($LASTEXITCODE -ne 0){throw 'Configured Master reinstall/repair failed'}
+ $restored=Get-Content (Join-Path $data 'installation.json') -Raw|ConvertFrom-Json
+ if($restored.installationId -ne $identity.installationId -or $restored.clusterId -ne $identity.clusterId -or $restored.terminalId -ne $identity.terminalId){throw 'Reinstall changed retained identities'}
+ Write-Output 'WINDOWS_MASTER_UNINSTALL_REINSTALL_PRESERVED_DATA_OK'
 }finally{
  Remove-Item $request -Force -ErrorAction SilentlyContinue
  [Array]::Clear($plain,0,$plain.Length);$password=$null;$body=$null
