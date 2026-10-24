@@ -15,7 +15,7 @@ Create the first staff manager in an elevated console on the configured Master:
 
 The tool prompts separately for the installation administrator (minimum 5) and the new staff password
 (12–128 characters). This is one-time bootstrap; subsequent staff administration uses a logged-in manager API.
-Never enter passwords in command arguments, source files or diagnostic output.
+Never enter passwords in command arguments, source files or diagnostic output. Controlled redirected input uses the tool's `--password-stdin` flag; the Windows helper writes UTF-8 directly to its child process input. Interactive use keeps a masked console prompt.
 
 Create an encrypted local backup:
 

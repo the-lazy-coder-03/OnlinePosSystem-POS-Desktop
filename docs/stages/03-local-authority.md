@@ -76,6 +76,8 @@ architecture rules and all available tests. Ten PostgreSQL integration scenarios
 9. Exact cents beyond IEEE floating-point integer precision, including saved JSON replay.
 10. Registered certificate plus staff token, wrong-terminal token, insecure transport and immediate terminal revocation.
 
+A separate Windows-only console test verifies that redirected UTF-8 credential input still requires the installation administrator, accepts its five-character policy and emits no credential text.
+
 The default build without `POS_TEST_DATABASE_URL` explicitly skips database tests. CI configures real
 PostgreSQL on Linux and Windows, so database tests must run there. No H2 substitution is used.
 

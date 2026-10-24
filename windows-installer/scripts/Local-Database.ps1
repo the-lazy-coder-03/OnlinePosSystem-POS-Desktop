@@ -2,9 +2,26 @@ param([Parameter(Mandatory=$true)][ValidateSet('BootstrapStaff','Backup')][strin
 $ErrorActionPreference='Stop'
 $credentialInput=@($input)
 function Invoke-DatabaseTool([string[]]$ToolArguments) {
- if($credentialInput.Count -gt 0){$credentialInput | & $java -jar $jar @ToolArguments}
+ if($credentialInput.Count -gt 0){
+  $start=New-Object Diagnostics.ProcessStartInfo
+  $start.FileName=$java;$start.Arguments='-jar "'+$jar+'" --password-stdin '+($ToolArguments -join ' ')
+  $start.UseShellExecute=$false;$start.CreateNoWindow=$true
+  $start.RedirectStandardInput=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+  $child=New-Object Diagnostics.Process;$child.StartInfo=$start
+  try {
+   [void]$child.Start()
+   $encoded=[Text.Encoding]::UTF8.GetBytes(($credentialInput -join "`n")+"`n")
+   try {$child.StandardInput.BaseStream.Write($encoded,0,$encoded.Length)}finally{[Array]::Clear($encoded,0,$encoded.Length)}
+   $child.StandardInput.Close()
+   if(-not $child.WaitForExit(60000)){$child.Kill();throw 'Protected credential operation timed out'}
+   Write-Output $child.StandardOutput.ReadToEnd()
+   Write-Host $child.StandardError.ReadToEnd()
+   if($child.ExitCode -ne 0){throw 'Protected database operation refused'}
+  } finally {$child.Dispose()}
+ }
  else { & $java -jar $jar @ToolArguments }
- if($LASTEXITCODE -ne 0){throw 'Protected database operation refused'}
+ if($credentialInput.Count -eq 0 -and $LASTEXITCODE -ne 0){throw 'Protected database operation refused'}
+ $global:LASTEXITCODE=0
 }
 if(-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Windows elevation required'}
 $program=Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'OnlinePOS'

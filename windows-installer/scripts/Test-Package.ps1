@@ -105,7 +105,7 @@ try{
  # Bootstrap staff through the protected owner console, then call the real installed TLS API.
  $staffPassword=([guid]::NewGuid()).ToString()
  try {
-  ($password+"`n"+$staffPassword) | & (Join-Path $program 'desktop\runtime\bin\java.exe') -jar (Join-Path $program 'server\store-server.jar') '--database-tool=bootstrap-staff' '--username=ci.manager'
+  @($password,$staffPassword) | & (Join-Path $program 'setup\Local-Database.ps1') -Operation BootstrapStaff -Username 'ci.manager'
   if($LASTEXITCODE -ne 0){throw 'Protected staff bootstrap failed'}
   $classes=Join-Path $out 'stage3-test-client';New-Item $classes -ItemType Directory -Force|Out-Null
   $clientPath=Join-Path $program 'desktop\app\*'

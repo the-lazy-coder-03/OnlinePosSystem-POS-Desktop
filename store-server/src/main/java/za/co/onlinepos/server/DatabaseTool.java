@@ -26,6 +26,8 @@ public final class DatabaseTool {
   private static final java.io.BufferedReader INPUT =
       new java.io.BufferedReader(new java.io.InputStreamReader(System.in, StandardCharsets.UTF_8));
 
+  private static boolean passwordStdin;
+
   private DatabaseTool() {}
 
   public static void migrate(DataSource owner, LocalDatabase.Identity identity) {
@@ -137,6 +139,7 @@ public final class DatabaseTool {
   }
 
   private static void run(String[] args) throws Exception {
+    passwordStdin = Arrays.asList(args).contains("--password-stdin");
     try {
       String operation =
           Arrays.stream(args)
@@ -213,7 +216,9 @@ public final class DatabaseTool {
       System.out.println("LOCAL_DATABASE_OPERATION_OK " + operation);
     } catch (Exception exception) {
       System.err.println(
-          "Local database operation refused. Check role, identity, credentials and migration diagnostics.");
+          "Local database operation refused ("
+              + exception.getClass().getSimpleName()
+              + "). Check role, identity, credentials and migration diagnostics.");
       System.exit(1);
     }
   }
@@ -224,7 +229,7 @@ public final class DatabaseTool {
   }
 
   private static char[] readPassword(String prompt) throws Exception {
-    if (System.console() != null) return System.console().readPassword(prompt);
+    if (!passwordStdin && System.console() != null) return System.console().readPassword(prompt);
     // Redirected input supports controlled administration/CI; credentials never enter argv.
     System.err.print(prompt);
     String line = INPUT.readLine();
