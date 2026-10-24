@@ -48,3 +48,15 @@ The process binds to 127.0.0.1:18090 by default. Do not bind it to a LAN before 
   replay watermark. Notifications only wake durable replay; no business event relies on transient delivery.
 
 These later interfaces are design commitments, not runnable APIs in Stage 1.
+
+## Stage 2 extension
+
+The loopback development profile retains the Stage 1 contract. The installed Windows service uses
+HTTPS and authenticated terminal certificates. It adds GET /api/local/identity,
+GET /api/local/diagnostics and POST /api/local/setup/pair. Pairing requires an unexpired ten-minute
+administrator invitation pinned to the branch CA, with terminal key proof and one-time consumption.
+Replay is rejected. Revocation is checked on each authenticated request. No LAN management API exists.
+Installation state now persists version, installation/cluster/terminal UUIDs, branch, role, terminal name
+and provisioning state; credentials live separately in DPAPI files. See stage2-cdi.md for ownership.
+Business command APIs remain unavailable; acceptingSales, cloudSyncEnabled and automaticPromotionEnabled
+remain false in all installed health responses.

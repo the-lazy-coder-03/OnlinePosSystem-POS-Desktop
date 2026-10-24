@@ -50,13 +50,17 @@ and elevation are mandatory. The backend is disabled; no standby database is see
 
 A fresh Slave installs no backend or PostgreSQL. Master demotion and any transition involving existing
 PostgreSQL data are deliberately refused pending a verified ownership/data handover. This restriction
-must not be bypassed by editing installation.json. No automatic failover is implemented.
+must not be bypassed by editing installation.json. No automatic failover is implemented. A configured Slave may deliberately create a new independent
+Master with Manage.ps1 -Action Master after installing Master components; this creates a new cluster
+identity and must never be used to silently replace a disconnected branch Master.
 
 ## Recovery and rollback
 Interrupted provisioning leaves CONFIGURING state and a redacted provisioning.log. Re-run the same setup
 with the same branch/role and administrator credential; installed identities and database directory must
-be preserved. Never delete populated data to repair installation. An incomplete certificate or pairing
-operation may require protected repair/reissue; do not disable TLS or create a second Master.
+be preserved. Never delete populated data to repair installation. Certificate bundles commit their CA key last, so interrupted first creation can be retried. If a pairing
+response is lost before the terminal saves its certificate, revoke that terminal UUID on the Master,
+issue a new invitation, and retry the same installation. A revoked registration may be replaced only
+with a fresh invitation; used tokens remain rejected. Do not disable TLS or create a second Master.
 
 Uninstall stops/removes app-owned services and firewall rules before removing binaries; failure to stop
 services cancels uninstall. ProgramData is retained, including database, keys and unresolved future queues.

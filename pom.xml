@@ -6,7 +6,7 @@
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>OnlinePosSystem POS Desktop</name>
-  <description>Stage 1 foundation. No production ordering, provisioning or cloud connectivity.</description>
+  <description>Stage 2 JavaFX CDI and protected Windows installation. No sales or cloud connectivity.</description>
   <modules>
     <module>pos-domain</module>
     <module>pos-contracts</module>
@@ -40,6 +40,12 @@
   </properties>
   <dependencyManagement>
     <dependencies>
+      <dependency><groupId>org.jboss.weld.se</groupId><artifactId>weld-se-core</artifactId><version>${weld.version}</version></dependency>
+      <dependency><groupId>jakarta.enterprise</groupId><artifactId>jakarta.enterprise.cdi-api</artifactId><version>4.1.0</version></dependency>
+      <dependency><groupId>jakarta.enterprise</groupId><artifactId>jakarta.enterprise.cdi-el-api</artifactId><version>4.1.0</version></dependency>
+      <dependency><groupId>jakarta.enterprise</groupId><artifactId>jakarta.enterprise.lang-model</artifactId><version>4.1.0</version></dependency>
+      <dependency><groupId>jakarta.inject</groupId><artifactId>jakarta.inject-api</artifactId><version>2.0.1</version></dependency>
+      <dependency><groupId>jakarta.annotation</groupId><artifactId>jakarta.annotation-api</artifactId><version>2.1.1</version></dependency>
       <dependency>
         <groupId>com.fasterxml.jackson</groupId>
         <artifactId>jackson-bom</artifactId>

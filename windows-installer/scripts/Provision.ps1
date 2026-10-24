@@ -131,6 +131,8 @@ if ($role -eq 'MASTER') {
   if (Get-NetTCPConnection -State Listen -LocalPort $httpsPort -ErrorAction SilentlyContinue) {
     if ((Get-Service OnlinePOSStore).Status -ne 'Running') { throw 'HTTPS port 8443 is occupied' }
   }
+  Remove-NetFirewallRule -Name OnlinePOS-MasterDiscovery -ErrorAction SilentlyContinue
+  New-NetFirewallRule -Name OnlinePOS-MasterDiscovery -DisplayName 'OnlinePOS Master discovery' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5353 -RemoteAddress LocalSubnet -Profile Private -Program $java | Out-Null
   Remove-NetFirewallRule -Name OnlinePOS-HTTPS -ErrorAction SilentlyContinue
   New-NetFirewallRule -Name OnlinePOS-HTTPS -DisplayName 'OnlinePOS trusted store HTTPS' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $httpsPort -RemoteAddress LocalSubnet -Profile Private -Program $java | Out-Null
   Set-Service OnlinePOSStore -StartupType Automatic

@@ -105,7 +105,6 @@ public final class SetupTool {
                 Certificates.issue(
                     host, serverKey.getPublic(), ca, caKey.getPrivate(), false, false, hosts);
             String pkiPassword = UUID.randomUUID().toString();
-            secrets.put("ca-key", caKey.getPrivate().getEncoded());
             secrets.put(
                 "ca-certificate", Certificates.encode(ca).getBytes(StandardCharsets.US_ASCII));
             secrets.put("pki-password", pkiPassword.getBytes(StandardCharsets.US_ASCII));
@@ -113,6 +112,8 @@ public final class SetupTool {
                 "server-p12",
                 Certificates.store(serverKey.getPrivate(), server, ca, pkiPassword.toCharArray()));
             secrets.put("trust-p12", Certificates.store(null, null, ca, pkiPassword.toCharArray()));
+            // Last write commits this bundle; interrupted first setup can safely regenerate it.
+            secrets.put("ca-key", caKey.getPrivate().getEncoded());
           }
           if (request.role() == InstallationRole.MASTER
               && !Files.exists(root.resolve("secrets/database-bundle.dpapi")))
@@ -131,7 +132,23 @@ public final class SetupTool {
                 JsonFiles.JSON.readValue(request.invitation(), Pairing.Invitation.class);
             if (invitation.branchId() != request.branchId())
               throw new SecurityException("Invitation belongs to another branch");
-            var reply = new TrustedStoreClient().pair(invitation, identity.terminalId(), secrets);
+            var client = new TrustedStoreClient();
+            Pairing.Identity reply;
+            if (Files.exists(root.resolve("secrets/terminal-p12.dpapi"))) {
+              var saved =
+                  JsonFiles.JSON.readValue(secrets.get("pairing-trust"), Pairing.Invitation.class);
+              if (!saved.clusterId().equals(invitation.clusterId())
+                  || saved.branchId() != invitation.branchId()
+                  || !saved.caFingerprint().equals(invitation.caFingerprint()))
+                throw new SecurityException(
+                    "Existing terminal trust cannot be replaced during repair");
+              try {
+                reply = client.identity(invitation, secrets);
+              } catch (SecurityException revoked) {
+                // A fresh administrator-issued invitation may replace a revoked registration.
+                reply = client.pair(invitation, identity.terminalId(), secrets);
+              }
+            } else reply = client.pair(invitation, identity.terminalId(), secrets);
             identity =
                 new Installation(
                     1,

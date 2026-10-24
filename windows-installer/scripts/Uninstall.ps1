@@ -11,3 +11,5 @@ Remove-NetFirewallRule -Name OnlinePOS-HTTPS -ErrorAction SilentlyContinue
 
 
 Remove-NetFirewallRule -Name OnlinePOS-Discovery -ErrorAction SilentlyContinue
+
+Remove-NetFirewallRule -Name OnlinePOS-MasterDiscovery -ErrorAction SilentlyContinue

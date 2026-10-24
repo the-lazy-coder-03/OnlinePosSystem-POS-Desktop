@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][ValidateSet('Invite','Revoke','Backup')][string]$Action,
+param([Parameter(Mandatory=$true)][ValidateSet('Invite','Revoke','Backup','Master')][string]$Action,
  [string]$Endpoint,[string]$OutputPath,[string]$TerminalId)
 $ErrorActionPreference='Stop'
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {throw 'Run installation management in an elevated PowerShell window'}
@@ -8,7 +8,7 @@ $classPath=Join-Path $program 'desktop\app\*'
 if ($Action -eq 'Invite') {
  if (-not $Endpoint -or -not $OutputPath) {throw 'Provide Endpoint and OutputPath'}
  # Invitations contain a temporary registration credential; only save under an administrator-owned directory.
- $parent=Join-Path $env:ProgramData 'OnlinePOS\invitations'
+ $parent=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'OnlinePOS\invitations'
  if(-not ([IO.Path]::GetFullPath($OutputPath)).StartsWith($parent+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Save invitations only under ProgramData\OnlinePOS\invitations'}
  New-Item $parent -ItemType Directory -Force | Out-Null
  & icacls.exe $parent /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
@@ -21,7 +21,7 @@ if ($Action -eq 'Invite') {
  $secure=Read-Host 'Installation administrator password' -AsSecureString
  $pointer=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
  try {
-  $envelope=@{request=@{branchId=$identity.branchId;role='BACKUP_MASTER';terminalName=$identity.terminalName;invitation=''};administratorPassword=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)}
+  $envelope=@{request=@{branchId=$identity.branchId;role=$(if($Action -eq 'Master'){'MASTER'}else{'BACKUP_MASTER'});terminalName=$identity.terminalName;invitation=''};administratorPassword=[Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)}
   $plain=[Text.Encoding]::UTF8.GetBytes(($envelope|ConvertTo-Json -Depth 5))
   Add-Type -AssemblyName System.Security
   $requests=Join-Path $env:LOCALAPPDATA 'OnlinePOS\requests';New-Item $requests -ItemType Directory -Force|Out-Null
