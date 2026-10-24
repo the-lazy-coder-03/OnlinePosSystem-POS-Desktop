@@ -159,11 +159,19 @@ class LocalPostgresIT {
                 .content(
                     json.writeValueAsString(
                         new StaffService.StaffEdit(
-                            UUID.randomUUID(), "invalid", null, true, 0, PASSWORD))))
+                            UUID.randomUUID(),
+                            UUID.randomUUID(),
+                            "invalid",
+                            null,
+                            true,
+                            0,
+                            PASSWORD))))
         .andExpect(status().isBadRequest());
     UUID cashier = UUID.randomUUID();
     staff.edit(
-        manager, new StaffService.StaffEdit(cashier, "cashier", "CASHIER", true, 0, PASSWORD));
+        manager,
+        new StaffService.StaffEdit(
+            UUID.randomUUID(), cashier, "cashier", "CASHIER", true, 0, PASSWORD));
     String cashierToken =
         (String) staff.login(new StaffService.Login("cashier", PASSWORD), TERMINAL).get("token");
     http.perform(
@@ -306,13 +314,33 @@ class LocalPostgresIT {
             staff.edit(
                 manager,
                 new StaffService.StaffEdit(
-                    manager.staffId(), "manager", "CASHIER", true, 0, null)));
+                    UUID.randomUUID(), manager.staffId(), "manager", "CASHIER", true, 0, null)));
     UUID id = UUID.randomUUID();
-    staff.edit(manager, new StaffService.StaffEdit(id, "cashier", "CASHIER", true, 0, PASSWORD));
+    UUID retryId = UUID.randomUUID();
+    var command =
+        new StaffService.StaffEdit(
+            UUID.randomUUID(), retryId, "retry.staff", "CASHIER", true, 0, PASSWORD);
+    assertEquals(staff.edit(manager, command), staff.edit(manager, command));
+    assertEquals(
+        0L,
+        runtime.queryForObject(
+            "SELECT revision FROM pos.staff WHERE staff_id=?", Long.class, retryId));
+    assertThrows(
+        LocalFailure.class,
+        () ->
+            staff.edit(
+                manager,
+                new StaffService.StaffEdit(
+                    command.commandId(), retryId, "changed.staff", "CASHIER", true, 0, PASSWORD)));
+    staff.edit(
+        manager,
+        new StaffService.StaffEdit(UUID.randomUUID(), id, "cashier", "CASHIER", true, 0, PASSWORD));
     String session =
         (String) staff.login(new StaffService.Login("cashier", PASSWORD), TERMINAL).get("token");
     StaffService.Actor staleActor = staff.authenticate(session, TERMINAL);
-    staff.edit(manager, new StaffService.StaffEdit(id, "cashier", "CASHIER", false, 0, null));
+    staff.edit(
+        manager,
+        new StaffService.StaffEdit(UUID.randomUUID(), id, "cashier", "CASHIER", false, 0, null));
     assertThrows(LocalFailure.class, () -> staff.authenticate(session, TERMINAL));
     assertThrows(
         LocalFailure.class,

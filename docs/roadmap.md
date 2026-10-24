@@ -1,7 +1,7 @@
 # Roadmap and stage gates
 
-Stage 2 is explicitly authorized. JavaFX uses Jakarta CDI/Weld SE; the separate backend retains Spring DI.
-Stop after Stage 2 review. Stage 3 and subsequent stages require explicit approval one at a time.
+Stage 3 is explicitly authorized. JavaFX uses Jakarta CDI/Weld SE; the separate backend retains Spring DI.
+Stop after Stage 3 review. Stage 4 and subsequent stages require explicit approval one at a time.
 
 | Stage | Deliverable |
 | --- | --- |

@@ -28,6 +28,7 @@ public class StaffService {
   }
 
   public record StaffEdit(
+      UUID commandId,
       UUID staffId,
       String username,
       String role,
@@ -145,8 +146,9 @@ public class StaffService {
         identity.branchId());
   }
 
-  public Map<String, Object> edit(Actor actor, StaffEdit edit) {
+  public com.fasterxml.jackson.databind.JsonNode edit(Actor actor, StaffEdit edit) {
     actor.manager();
+    CommandJournal.requireUuid(edit.commandId());
     CommandJournal.requireUuid(edit.staffId());
     if (edit.username() == null
         || !edit.username().matches("[a-z0-9._-]{3,64}")
@@ -154,19 +156,37 @@ public class StaffService {
         || !List.of("MANAGER", "CASHIER").contains(edit.role())
         || edit.expectedRevision() < 0) throw new LocalFailure(400, "Invalid staff fields");
     String hash = null;
+    String passwordProof = "";
     if (edit.password() != null) {
       char[] pass = edit.password().toCharArray();
       try {
         hash = Passwords.hash(pass);
+        passwordProof = Passwords.commandProof(pass, edit.commandId());
       } finally {
         Arrays.fill(pass, '\0');
       }
     }
     final String newHash = hash;
-    return transactions.execute(
-        status -> {
-          journal.lockStream();
-          journal.requireActor(actor);
+    var payload =
+        Map.of(
+            "staffId",
+            edit.staffId(),
+            "username",
+            edit.username(),
+            "role",
+            edit.role(),
+            "enabled",
+            edit.enabled(),
+            "expectedRevision",
+            edit.expectedRevision(),
+            "passwordProof",
+            passwordProof);
+    return journal.execute(
+        edit.commandId(),
+        actor,
+        "STAFF_CHANGED",
+        payload,
+        () -> {
           var previous =
               jdbc.queryForList(
                   "SELECT role,enabled,revision FROM pos.staff WHERE staff_id=? AND branch_id=?",
@@ -218,8 +238,8 @@ public class StaffService {
                   edit.role(),
                   "enabled",
                   edit.enabled());
-          journal.event(actor, "STAFF_CHANGED", edit.staffId(), revision, null, result);
-          return result;
+          journal.event(actor, "STAFF_CHANGED", edit.staffId(), revision, edit.commandId(), result);
+          return journal.tree(result);
         });
   }
 }

@@ -24,6 +24,9 @@ with socket.socket() as connection:
     connection.bind(("127.0.0.1", 0))
     port = connection.getsockname()[1]
 bootstrap, owner, runtime = [secrets.token_urlsafe(24) for _ in range(3)]
+if os.environ.get("GITHUB_ENV"):
+    for password in (bootstrap, owner, runtime):
+        print("::add-mask::" + password, flush=True)
 password_file = root / "init.password"
 password_file.write_text(bootstrap)
 try:
@@ -40,8 +43,6 @@ environment = dict(os.environ, PGPASSWORD=bootstrap)
 run("psql", ["-X", "-h", "127.0.0.1", "-p", str(port), "-U", "pos_test_bootstrap", "-d", "postgres", "-v", "ON_ERROR_STOP=1"], input=sql, text=True, env=environment)
 settings = {"POS_TEST_DATABASE_URL": "jdbc:postgresql://127.0.0.1:" + str(port) + "/pos_stage3_test", "POS_TEST_OWNER_PASSWORD": owner, "POS_TEST_RUNTIME_PASSWORD": runtime, "POS_TEST_PG_BIN": str(bin_dir), "POS_TEST_CLUSTER_ROOT": str(root)}
 if os.environ.get("GITHUB_ENV"):
-    for password in (bootstrap, owner, runtime):
-        print("::add-mask::" + password)
     with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as target:
         for key, value in settings.items():
             target.write(key + "=" + value + "\n")
@@ -50,4 +51,5 @@ else:
     target.write_text(json.dumps(settings))
     if os.name != "nt":
         target.chmod(0o600)
+    print("Protected test configuration: " + str(target))
 print("Disposable PostgreSQL test cluster ready (loopback only).")

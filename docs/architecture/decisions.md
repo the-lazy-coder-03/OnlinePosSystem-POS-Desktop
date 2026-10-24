@@ -43,5 +43,14 @@
     Windows 10/11 client UAC/reboot/LAN checks and later business stages require their separate gates.
     An unseeded Backup cannot promote or run as an installed Master.
 
+18. Stage 3 uses a single-branch local `pos` schema with owner-only Flyway migrations and a DDL-restricted
+    runtime. Staff sessions are terminal-certificate-bound and recheck revocation. Installation administration
+    remains a separate credential (user-selected minimum 5); staff passwords use a 12-character minimum.
+19. Stage 3 orders are drafts only. Server-read decimal price snapshots, UUID command receipts, revision
+    checks, audit and branch-serialized transactional outbox precede any sale acceptance in Stage 5.
+    Empty catalogue installs require the separately approved Stage 4 import; no test catalogue is shipped.
+20. Early backup smoke tests restore to a separate database. Machine-DPAPI backup files are local recovery
+    aids; portable/off-node backups, escrow, retention and production restore drills remain Stage 12 gates.
+
 These decisions refine the original staged plan. A stage's completion does not authorize the next stage,
 deployment, production migrations, branch activation or automatic failover.

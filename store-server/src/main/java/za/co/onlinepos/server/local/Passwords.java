@@ -23,6 +23,16 @@ public final class Passwords {
         + Base64.getEncoder().encodeToString(derive(password, salt, ITERATIONS));
   }
 
+  /** Slow, per-command proof avoids persisting a fast password digest in command receipts. */
+  public static String commandProof(char[] password, java.util.UUID commandId) {
+    byte[] salt =
+        java.nio.ByteBuffer.allocate(16)
+            .putLong(commandId.getMostSignificantBits())
+            .putLong(commandId.getLeastSignificantBits())
+            .array();
+    return Base64.getEncoder().encodeToString(derive(password, salt, ITERATIONS));
+  }
+
   public static boolean matches(char[] password, String encoded) {
     try {
       String[] parts = encoded.split(":");

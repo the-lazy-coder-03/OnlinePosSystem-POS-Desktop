@@ -102,8 +102,7 @@ public class LocalEndpoints {
   }
 
   @PutMapping("/api/local/staff")
-  public Map<String, Object> edit(
-      @RequestBody StaffService.StaffEdit edit, HttpServletRequest request) {
+  public JsonNode edit(@RequestBody StaffService.StaffEdit edit, HttpServletRequest request) {
     return staff.edit(actor(request), edit);
   }
 
