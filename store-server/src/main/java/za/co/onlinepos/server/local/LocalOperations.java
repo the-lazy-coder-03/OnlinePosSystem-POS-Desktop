@@ -41,6 +41,11 @@ public class LocalOperations {
     CommandJournal.requireUuid(priceId);
     if (edit.expectedRevision() < 0 || edit.amount() == null)
       throw new LocalFailure(400, "Invalid price edit");
+    if (edit.amount().precision() > 19
+        || edit.amount().scale() > 128
+        || edit.amount().scale() < -17
+        || (long) edit.amount().precision() - edit.amount().scale() > 17)
+      throw new LocalFailure(400, "Price exceeds supported precision");
     BigDecimal amount = new Money(edit.amount()).amount();
     if (amount.signum() < 0 || amount.precision() > 19)
       throw new LocalFailure(400, "Invalid price");

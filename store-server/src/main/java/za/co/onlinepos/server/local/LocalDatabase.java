@@ -26,12 +26,16 @@ public class LocalDatabase {
     config.setPassword(env.getRequiredProperty("pos.database.password"));
     config.setMaximumPoolSize(8);
     config.setConnectionTimeout(5000);
+    config.setValidationTimeout(3000);
+    config.addDataSourceProperty("socketTimeout", "10");
     return new HikariDataSource(config);
   }
 
   @Bean
   JdbcTemplate localJdbc(DataSource dataSource) {
-    return new JdbcTemplate(dataSource);
+    var jdbc = new JdbcTemplate(dataSource);
+    jdbc.setQueryTimeout(5);
+    return jdbc;
   }
 
   @Bean

@@ -36,6 +36,7 @@ public final class Passwords {
   public static boolean matches(char[] password, String encoded) {
     try {
       String[] parts = encoded.split(":");
+      if (parts.length != 3) return false;
       int iterations = Integer.parseInt(parts[0]);
       if (iterations != ITERATIONS || password.length > 128) return false;
       return MessageDigest.isEqual(
