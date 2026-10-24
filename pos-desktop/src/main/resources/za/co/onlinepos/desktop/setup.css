@@ -1,0 +1,16 @@
+.root {
+    -fx-font-family: "Segoe UI", "Arial", sans-serif;
+    -fx-font-size: 15px;
+    -fx-background-color: #f2f5f7;
+}
+.label { -fx-text-fill: #182c3b; }
+.brand { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: #087f7a; }
+.title { -fx-font-size: 29px; -fx-font-weight: bold; }
+.card { -fx-background-color: white; -fx-background-radius: 12px; -fx-padding: 26px; }
+.text-field, .combo-box { -fx-padding: 10px; -fx-background-radius: 6px; }
+.button { -fx-padding: 12px 20px; -fx-cursor: hand; -fx-background-radius: 6px; }
+.primary { -fx-background-color: #087f7a; -fx-text-fill: white; -fx-font-weight: bold; }
+.primary:hover { -fx-background-color: #056660; }
+.validation { -fx-text-fill: #b42318; -fx-min-height: 23px; }
+.notice { -fx-text-fill: #536778; -fx-font-size: 13px; }
+.summary { -fx-font-size: 23px; -fx-line-spacing: 8px; }

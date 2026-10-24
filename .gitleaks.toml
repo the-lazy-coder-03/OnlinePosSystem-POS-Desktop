@@ -1,0 +1,7 @@
+title = "OnlinePOS secret detection"
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated build output and Git internals; source and history remain scanned"
+paths = ['''(^|/)target/''', '''(^|/)\.git/''']

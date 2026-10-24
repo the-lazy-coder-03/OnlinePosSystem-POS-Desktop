@@ -1,0 +1,16 @@
+**/target/
+.idea/
+*.iml
+.DS_Store
+.env
+.env.*
+!.env.example
+*.mv.db
+*.trace.db
+*.p12
+*.pfx
+*.key
+*.pem
+*.jks
+runtime/
+logs/
