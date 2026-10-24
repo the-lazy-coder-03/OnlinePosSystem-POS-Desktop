@@ -53,7 +53,10 @@ if ($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER') {
   Write-Output 'POSTGRES_PAYLOAD_VERIFIED'
   if (-not (Test-Path (Join-Path $program 'postgres\pgsql\bin\postgres.exe'))) {
     New-Item (Join-Path $program 'postgres') -ItemType Directory -Force | Out-Null
-    Expand-Archive $archive (Join-Path $program 'postgres') -Force
+    # PowerShell 5 Expand-Archive is very slow on the vendor's many small files.
+    # Windows 10/11 includes bsdtar; extract only PostgreSQL runtime components, not pgAdmin/docs.
+    & (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $archive -C (Join-Path $program 'postgres') 'pgsql/bin' 'pgsql/lib' 'pgsql/share'
+    if($LASTEXITCODE -ne 0){throw 'PostgreSQL runtime extraction failed'}
   }
   $bin = Join-Path $program 'postgres\pgsql\bin'
   $pgdata = Join-Path $data 'postgres-data'
@@ -99,6 +102,7 @@ GRANT CONNECT ON DATABASE pos_store TO pos_runtime;
   $service = Join-Path $program 'server\OnlinePOSStore.exe'
   $xml = @"
 <service><id>OnlinePOSStore</id><name>OnlinePOS Store Backend</name>
+<description>OnlinePOS local HTTPS installation service. Sales remain unavailable in Stage 2.</description>
 <executable>$java</executable><arguments>-jar &quot;$program\server\store-server.jar&quot; --spring.profiles.active=installed</arguments>
 <env name="POS_DATA_ROOT" value="$data"/><logpath>$data\logs</logpath>
 <log mode="roll"/><onfailure action="restart" delay="10 sec"/><stoptimeout>30 sec</stoptimeout>
