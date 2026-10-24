@@ -82,6 +82,13 @@ jobs:
         timeout-minutes: 15
         shell: powershell
         run: .\windows-installer\scripts\Test-Package.ps1
+      - name: Capture installed service diagnostics
+        if: runner.os == 'Windows' && always()
+        shell: powershell
+        run: |
+          $logRoot=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'OnlinePOS\logs'
+          $destination='windows-installer\target\service-logs'
+          if(Test-Path $logRoot){New-Item $destination -ItemType Directory -Force|Out-Null;Copy-Item (Join-Path $logRoot '*.log') $destination -ErrorAction SilentlyContinue}
       - name: Stop disposable test PostgreSQL
         if: always()
         shell: pwsh
@@ -99,6 +106,7 @@ jobs:
             windows-installer/target/SHA256SUMS.txt
             windows-installer/target/packaged-fx*.log
             windows-installer/target/stage/release-manifest.json
+            windows-installer/target/service-logs/*.log
           if-no-files-found: warn
       - name: Publish test evidence
         if: always()

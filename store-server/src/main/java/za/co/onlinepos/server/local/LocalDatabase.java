@@ -26,6 +26,7 @@ public class LocalDatabase {
     config.setPassword(env.getRequiredProperty("pos.database.password"));
     config.setMaximumPoolSize(8);
     config.setConnectionTimeout(5000);
+    config.setInitializationFailTimeout(60000);
     config.setValidationTimeout(3000);
     config.addDataSourceProperty("socketTimeout", "10");
     return new HikariDataSource(config);

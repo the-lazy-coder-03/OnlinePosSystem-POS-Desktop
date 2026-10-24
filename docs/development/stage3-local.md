@@ -5,7 +5,7 @@ JavaFX remains the Stage 2 CDI setup application; cashier/login/sales screens ar
 
 For Windows Master setup, run the unsigned development installer and the JavaFX first-run workflow. The elevated
 helper creates the dedicated PostgreSQL database, applies local Flyway migrations and gives the service only its
-runtime credential. No catalogue/staff accounts are silently seeded. Backup remains inactive/unseeded.
+runtime credential. No catalogue/staff accounts are silently seeded. For planned restarts, stop the backend, restart PostgreSQL, then start the backend and verify API readiness. Backup remains inactive/unseeded.
 
 Create the first staff manager in an elevated console on the configured Master:
 

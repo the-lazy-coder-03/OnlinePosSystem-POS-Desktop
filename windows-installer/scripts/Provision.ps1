@@ -180,8 +180,11 @@ GRANT CONNECT ON DATABASE pos_store TO pos_runtime;
     if($LASTEXITCODE -ne 0){throw 'Local database migration failed; backend remains stopped'}
   }
   $service = Join-Path $program 'server\OnlinePOSStore.exe'
+  $databaseDependency=''
+  if($role -eq 'MASTER'){$databaseDependency='<depend>OnlinePOSPostgres</depend>'}
   $xml = @"
 <service><id>OnlinePOSStore</id><name>OnlinePOS Store Backend</name>
+$databaseDependency
 <description>OnlinePOS local HTTPS installation service. Stage 3 local database and draft APIs; sales remain unavailable.</description>
 <executable>$java</executable><arguments>-jar &quot;$program\server\store-server.jar&quot; --spring.profiles.active=installed</arguments>
 <env name="POS_DATA_ROOT" value="$data"/><logpath>$data\logs</logpath>
@@ -193,6 +196,7 @@ GRANT CONNECT ON DATABASE pos_store TO pos_runtime;
     & $service install
     if ($LASTEXITCODE -ne 0) { throw 'Backend service registration failed' }
   }
+  if($role -eq 'MASTER'){ & sc.exe config OnlinePOSStore depend= OnlinePOSPostgres | Out-Null; if($LASTEXITCODE -ne 0){throw 'Cannot configure backend database dependency'} }
   $accountChange=Invoke-CimMethod -InputObject (Get-CimInstance Win32_Service -Filter "Name='OnlinePOSStore'") -MethodName Change -Arguments @{StartName='NT SERVICE\OnlinePOSStore'}
   if($accountChange.ReturnValue -ne 0){throw 'Cannot assign the least-privilege backend service account'}
   & sc.exe sidtype OnlinePOSStore unrestricted | Out-Null

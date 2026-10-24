@@ -185,12 +185,15 @@ public final class SetupTool {
           var invitation =
               registry.invite("https://localhost:" + NetworkSettings.load(root).httpsPort());
           Exception failure = null;
-          for (int attempt = 0; attempt < 15; attempt++)
+          for (long deadline =
+                  System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(90);
+              System.nanoTime() < deadline; )
             try {
               new TrustedStoreClient().pair(invitation, identity.terminalId(), secrets);
               failure = null;
               break;
-            } catch (java.net.ConnectException exception) {
+            } catch (java.net.ConnectException
+                | java.net.http.HttpConnectTimeoutException exception) {
               failure = exception;
               Thread.sleep(1000);
             }
@@ -199,12 +202,14 @@ public final class SetupTool {
         var trust =
             JsonFiles.JSON.readValue(secrets.get("pairing-trust"), Pairing.Invitation.class);
         Exception readinessFailure = null;
-        for (int attempt = 0; attempt < 15; attempt++)
+        for (long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(90);
+            System.nanoTime() < deadline; )
           try {
             new TrustedStoreClient().identity(trust, secrets);
             readinessFailure = null;
             break;
-          } catch (java.net.ConnectException exception) {
+          } catch (java.net.ConnectException
+              | java.net.http.HttpConnectTimeoutException exception) {
             readinessFailure = exception;
             Thread.sleep(1000);
           }

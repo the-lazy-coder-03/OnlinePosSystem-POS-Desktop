@@ -36,7 +36,7 @@ Stage 4 is not authorized or started. No live-store deployment is authorized.
 - Inbox receipts are schema foundations only. No inbox receiver, outbox delivery worker or cloud API exists.
 - Printer and service metadata explicitly report unavailable printing/sales/cloud/promotion capabilities.
 - Master provisioning and repair run migrations before starting the backend; Backup stays inactive/unseeded.
-  The backend gets only a DPAPI-protected runtime credential, never the owner/bootstrap bundle.
+  The backend gets only a DPAPI-protected runtime credential, never the owner/bootstrap bundle. The Master service declares its PostgreSQL dependency and waits for database initialization; trusted setup retries transient connection failures within 90 seconds while certificate failures remain fatal.
 - An elevated, installation-admin-authenticated backup command writes a custom PostgreSQL dump, encrypts
   it with Windows machine DPAPI and deletes the successful plaintext dump. It uses a protected directory
   and never passes passwords in argv. There is no destructive restore button or automatic data deletion.
@@ -96,6 +96,10 @@ key escrow, retention, large-database streaming, scheduled/off-node backups and 
 The current helper buffers a dump while encrypting; do not use it as a production-scale backup system.
 A failed dump/encryption can leave a partial plaintext file under the restricted backup directory; it is not
 reported as successful and must be inspected/removed by an administrator. Never delete unresolved business data.
+
+For a planned database restart, stop `OnlinePOSStore`, restart `OnlinePOSPostgres`, then start
+`OnlinePOSStore` and verify trusted readiness. Service running status alone does not establish API readiness.
+The dependency uses the documented [WinSW 2.12 service dependency configuration](https://github.com/winsw/winsw/blob/v2.12.0/doc/xmlConfigFile.md#depend).
 
 Before upgrades, stop new commands, retain a verified backup and preserve the identity/key files. The helper
 stops an existing backend before owner migrations. Migration failure leaves it stopped for diagnosis; retry

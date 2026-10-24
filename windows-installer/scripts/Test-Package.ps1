@@ -70,8 +70,10 @@ try{
  foreach($service in @('OnlinePOSStore','OnlinePOSPostgres')){
   if((Get-Service $service).Status -ne 'Running'){throw "Service not running: $service"}
   if((Get-CimInstance Win32_Service -Filter "Name='$service'").StartName -ne ('NT SERVICE\'+$service)){throw 'Service does not use its dedicated virtual account'}
-  Restart-Service $service
  }
+ Stop-Service OnlinePOSStore
+ Restart-Service OnlinePOSPostgres
+ Start-Service OnlinePOSStore
  & (Join-Path $program 'desktop\runtime\bin\java.exe') -cp (Join-Path $program 'desktop\app\*') za.co.onlinepos.installation.SetupTool pair-local
  if($LASTEXITCODE -ne 0){throw 'Paired Master self-test failed'}
  # Repeat provisioning must preserve identity and database.
