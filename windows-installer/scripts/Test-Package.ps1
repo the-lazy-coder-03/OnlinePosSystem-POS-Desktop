@@ -57,7 +57,7 @@ Install-Role 'master'
 Add-Type -AssemblyName System.Security
 $requests=Join-Path $env:LOCALAPPDATA 'OnlinePOS\requests';New-Item $requests -ItemType Directory -Force|Out-Null
 $request=Join-Path $requests (([guid]::NewGuid()).ToString()+'.dpapi')
-$password=([guid]::NewGuid()).ToString()
+$password=([guid]::NewGuid()).ToString().Substring(0,5)
 $body=@{request=@{branchId=1;role='MASTER';terminalName='CI Master';invitation=''};administratorPassword=$password}|ConvertTo-Json -Depth 5
 $plain=[Text.Encoding]::UTF8.GetBytes($body)
 try{
@@ -91,6 +91,19 @@ try{
   if($LASTEXITCODE -ne 0 -or $tables -ne '0'){throw 'Stage 2 created business tables'}
  }finally{Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue}
  Write-Output 'WINDOWS_MASTER_INSTALL_REPAIR_GRANTS_FIREWALL_OK'
+ $masterUninstall=Start-Process (Join-Path $program 'unins000.exe') -Wait -PassThru -ArgumentList '/VERYSILENT'
+ if($masterUninstall.ExitCode -ne 0){throw 'Configured Master uninstall failed'}
+ if(-not(Test-Path (Join-Path $data 'postgres-data\PG_VERSION')) -or -not(Test-Path (Join-Path $data 'secrets\database-bundle.dpapi'))){throw 'Master uninstall removed database or keys'}
+ foreach($service in @('OnlinePOSStore','OnlinePOSPostgres')){
+  if(Get-CimInstance Win32_Service -Filter "Name='$service'"){throw 'Uninstall retained an app-owned service'}
+ }
+ if(Test-Path (Join-Path $program 'postgres')){throw 'Uninstall retained marked runtime binaries'}
+ Install-Role 'master'
+ & (Join-Path $program 'setup\Provision.ps1') -RequestPath $request
+ if($LASTEXITCODE -ne 0){throw 'Configured Master reinstall/repair failed'}
+ $restored=Get-Content (Join-Path $data 'installation.json') -Raw|ConvertFrom-Json
+ if($restored.installationId -ne $identity.installationId -or $restored.clusterId -ne $identity.clusterId -or $restored.terminalId -ne $identity.terminalId){throw 'Reinstall changed retained identities'}
+ Write-Output 'WINDOWS_MASTER_UNINSTALL_REINSTALL_PRESERVED_DATA_OK'
 }finally{
  Remove-Item $request -Force -ErrorAction SilentlyContinue
  [Array]::Clear($plain,0,$plain.Length);$password=$null;$body=$null
