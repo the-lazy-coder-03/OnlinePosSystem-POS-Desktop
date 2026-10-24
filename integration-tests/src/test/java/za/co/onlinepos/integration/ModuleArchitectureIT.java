@@ -26,7 +26,8 @@ class ModuleArchitectureIT {
             "java.sql..",
             "jakarta.persistence..",
             "jakarta.enterprise..",
-            "jakarta.inject..")
+            "jakarta.inject..",
+            "jakarta.annotation..")
         .check(classes);
   }
 
@@ -56,6 +57,27 @@ class ModuleArchitectureIT {
         .should()
         .dependOnClassesThat()
         .resideInAnyPackage("org.jboss.weld..", "jakarta.enterprise..", "jakarta.inject..")
+        .check(classes);
+    noClasses()
+        .that()
+        .resideInAnyPackage("..desktop..", "..installation..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAPackage("org.springframework..")
+        .check(classes);
+    noClasses()
+        .that()
+        .resideInAPackage("..installation..")
+        .should()
+        .dependOnClassesThat()
+        .resideInAnyPackage("jakarta.enterprise..", "jakarta.inject..", "javafx..")
+        .check(classes);
+    noClasses()
+        .that()
+        .resideInAPackage("..desktop..")
+        .should()
+        .dependOnClassesThat()
+        .haveFullyQualifiedName("java.lang.ProcessBuilder")
         .check(classes);
     com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices()
         .matching("za.co.onlinepos.(*)..")

@@ -66,3 +66,11 @@ the operational cloud rollback/deployment scripts. Keep the original OnlinePosIn
 
 After review and Windows verification, Stage 2 still requires explicit approval. Do not automatically
 install PostgreSQL, expose the API to the LAN, create a remote, deploy or advance stages.
+
+## Stage 2 evidence addendum — 24 October 2026
+
+The approved private remote now exists at the-lazy-coder-03/OnlinePosSystem-POS-Desktop. Stage 1 was
+committed separately as bf2d8c4b2948cf92d2490488b47cb3381ddeaa7c. Its GitHub CI run 40116729206 passed
+Linux and Windows builds, architecture/security tests, source/history secret scans and actual JavaFX
+launch. Earlier statements above describe the evidence available at the original Stage 1 handoff.
+Stage 2 was subsequently authorized explicitly and is tracked separately in 02-windows-setup.md.
