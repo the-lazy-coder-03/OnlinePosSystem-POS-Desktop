@@ -33,6 +33,8 @@ $backupRequest=Join-Path $backupRequests (([guid]::NewGuid()).ToString()+'.dpapi
 $backupPassword=([guid]::NewGuid()).ToString()
 $backupBody=@{request=@{branchId=1;role='BACKUP_MASTER';terminalName='CI Backup';invitation=''};administratorPassword=$backupPassword}|ConvertTo-Json -Depth 5
 $backupPlain=[Text.Encoding]::UTF8.GetBytes($backupBody)
+# A pre-existing explicit permissive grant must be replaced before secrets are created.
+& icacls.exe $data /grant '*S-1-1-0:(OI)(CI)M' | Out-Null
 try {
  [IO.File]::WriteAllBytes($backupRequest,[Security.Cryptography.ProtectedData]::Protect($backupPlain,$null,[Security.Cryptography.DataProtectionScope]::LocalMachine))
  & (Join-Path $program 'setup\Provision.ps1') -RequestPath $backupRequest
@@ -41,6 +43,7 @@ try {
  if($backupIdentity.state -ne 'STANDBY_UNSEEDED' -or (Get-Service OnlinePOSStore).StartType -ne 'Disabled'){throw 'Backup was not kept inactive'}
  if(Get-Service OnlinePOSPostgres -ErrorAction SilentlyContinue){throw 'Backup initialized a PostgreSQL service'}
  if(Test-Path (Join-Path $data 'postgres-data\PG_VERSION')){throw 'Backup initialized a database'}
+ if((Get-Acl $data).Access|Where-Object {$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -eq 'S-1-1-0'}){throw 'Setup retained a permissive Everyone grant'}
  Write-Output 'WINDOWS_BACKUP_INACTIVE_UNSEEDED_OK'
 } finally {
  Remove-Item $backupRequest -Force -ErrorAction SilentlyContinue
@@ -66,6 +69,7 @@ try{
  if($identity.state -ne 'INSTALLED' -or $identity.role -ne 'MASTER'){throw 'Wrong installation state'}
  foreach($service in @('OnlinePOSStore','OnlinePOSPostgres')){
   if((Get-Service $service).Status -ne 'Running'){throw "Service not running: $service"}
+  if((Get-CimInstance Win32_Service -Filter "Name='$service'").StartName -ne ('NT SERVICE\'+$service)){throw 'Service does not use its dedicated virtual account'}
   Restart-Service $service
  }
  & (Join-Path $program 'desktop\runtime\bin\java.exe') -cp (Join-Path $program 'desktop\app\*') za.co.onlinepos.installation.SetupTool pair-local

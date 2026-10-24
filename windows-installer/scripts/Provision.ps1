@@ -20,8 +20,15 @@ function Invoke-Tool([string[]]$Arguments) {
 }
 function Protect-Directory([string]$Path) {
   New-Item $Path -ItemType Directory -Force | Out-Null
-  & icacls.exe $Path /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'Cannot secure installation directory' }
+  if((Get-Item $Path).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Protected directory links are prohibited'}
+  $security=New-Object Security.AccessControl.DirectorySecurity
+  $security.SetAccessRuleProtection($true,$false)
+  $security.SetOwner((New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')))
+  foreach($sid in @('S-1-5-18','S-1-5-32-544')){
+    $rule=New-Object Security.AccessControl.FileSystemAccessRule((New-Object Security.Principal.SecurityIdentifier($sid)),[Security.AccessControl.FileSystemRights]::FullControl,([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit),[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
+    $security.AddAccessRule($rule)
+  }
+  Set-Acl -LiteralPath $Path -AclObject $security
 }
 Protect-Directory $data
 $provisionLock=[IO.File]::Open((Join-Path $data 'provision.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
@@ -83,12 +90,27 @@ if ($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER') {
     if (-not (Test-Path (Join-Path $pgdata 'PG_VERSION'))) {
       if ((Test-Path $pgdata) -and (Get-ChildItem $pgdata -Force | Select-Object -First 1)) { throw 'Refusing to initialize nonempty database directory' }
       Protect-Directory $pgdata
+      # initdb deliberately drops the Administrators SID on Windows. Grant only this user's SID
+      # temporary access, then remove it and transfer ownership before starting the service.
+      $setupSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+      & icacls.exe $data /grant "*$($setupSid):(RX)" | Out-Null
+      if($LASTEXITCODE -ne 0){throw 'Cannot grant setup traversal'}
+      & icacls.exe $pgdata /grant "*$($setupSid):(OI)(CI)M" | Out-Null
+      if($LASTEXITCODE -ne 0){throw 'Cannot grant restricted initdb access'}
       $pw = Join-Path $data 'initdb.password'
       try {
         [IO.File]::WriteAllText($pw,$credentials.bootstrap,[Text.Encoding]::ASCII)
+        & icacls.exe $pw /grant "*$($setupSid):R" | Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Cannot grant restricted initdb password-file access'}
         & (Join-Path $bin 'initdb.exe') '-D' $pgdata '--username=pos_bootstrap' '--auth=scram-sha-256' '--encoding=UTF8' '--locale=C' '--data-checksums' "--pwfile=$pw" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Database initialization failed' }
-      } finally { Remove-Item $pw -Force -ErrorAction SilentlyContinue }
+      } finally {
+        Remove-Item $pw -Force -ErrorAction SilentlyContinue
+        & icacls.exe $pgdata /setowner '*S-1-5-32-544' /T /C | Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Cannot secure initialized database ownership'}
+        & icacls.exe $pgdata /remove:g "*$setupSid" /T /C | Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Cannot revoke temporary database setup access'}
+      }
       Add-Content (Join-Path $pgdata 'postgresql.conf') "port=$postgresPort`nlisten_addresses='127.0.0.1'`npassword_encryption='scram-sha-256'"
       [IO.File]::WriteAllText((Join-Path $pgdata 'pg_hba.conf'),"host all all 127.0.0.1/32 scram-sha-256`r`n",[Text.Encoding]::ASCII)
     }
@@ -97,8 +119,18 @@ if ($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER') {
       if ($LASTEXITCODE -ne 0) { throw 'Database service registration failed' }
       & sc.exe sidtype OnlinePOSPostgres unrestricted | Out-Null
     }
+    $pgAccount=Invoke-CimMethod -InputObject (Get-CimInstance Win32_Service -Filter "Name='OnlinePOSPostgres'") -MethodName Change -Arguments @{StartName='NT SERVICE\OnlinePOSPostgres';StartPassword=''}
+    if($pgAccount.ReturnValue -ne 0){throw 'Cannot assign the dedicated PostgreSQL virtual account'}
     & icacls.exe $pgdata /grant 'NT SERVICE\OnlinePOSPostgres:(OI)(CI)F' | Out-Null
+    if($LASTEXITCODE -ne 0){throw 'Cannot grant PostgreSQL service access'}
     Start-Service OnlinePOSPostgres
+    $ready=$false
+    for($attempt=0;$attempt -lt 30;$attempt++){
+      & (Join-Path $bin 'pg_isready.exe') -h 127.0.0.1 -p $postgresPort -q
+      if($LASTEXITCODE -eq 0){$ready=$true;break}
+      Start-Sleep -Seconds 1
+    }
+    if(-not $ready){throw 'PostgreSQL did not become ready'}
     $env:PGPASSWORD = $credentials.bootstrap
     try {
       $sql = @"
@@ -126,7 +158,7 @@ GRANT CONNECT ON DATABASE pos_store TO pos_runtime;
     & $service install
     if ($LASTEXITCODE -ne 0) { throw 'Backend service registration failed' }
   }
-  $accountChange=Invoke-CimMethod -InputObject (Get-CimInstance Win32_Service -Filter "Name='OnlinePOSStore'") -MethodName Change -Arguments @{StartName='NT AUTHORITY\LocalService';StartPassword=''}
+  $accountChange=Invoke-CimMethod -InputObject (Get-CimInstance Win32_Service -Filter "Name='OnlinePOSStore'") -MethodName Change -Arguments @{StartName='NT SERVICE\OnlinePOSStore';StartPassword=''}
   if($accountChange.ReturnValue -ne 0){throw 'Cannot assign the least-privilege backend service account'}
   & sc.exe sidtype OnlinePOSStore unrestricted | Out-Null
   & icacls.exe $data /remove 'NT SERVICE\OnlinePOSStore' | Out-Null
@@ -137,7 +169,7 @@ GRANT CONNECT ON DATABASE pos_store TO pos_runtime;
     & icacls.exe $directoryPath /grant 'NT SERVICE\OnlinePOSStore:(OI)(CI)M' | Out-Null
   }
   $secretDirectory=Join-Path $data 'secrets'
-  & icacls.exe $secretDirectory /grant 'NT SERVICE\OnlinePOSStore:(RX)' | Out-Null
+  if(Test-Path $secretDirectory){ & icacls.exe $secretDirectory /grant 'NT SERVICE\OnlinePOSStore:(RX)' | Out-Null }
   foreach($secretName in @('ca-key','ca-certificate','pki-password','server-p12','trust-p12')){
     $serviceSecret=Join-Path $secretDirectory ($secretName+'.dpapi')
     if(Test-Path $serviceSecret){ & icacls.exe $serviceSecret /grant 'NT SERVICE\OnlinePOSStore:R' | Out-Null }

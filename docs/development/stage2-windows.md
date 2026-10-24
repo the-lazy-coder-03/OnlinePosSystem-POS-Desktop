@@ -32,7 +32,7 @@ Firewall access is limited to the Private profile and LocalSubnet. Set storeSubn
 network during setup; do not open it on Public profiles or expose PostgreSQL.
 
 PostgreSQL is a dedicated cluster, loopback-only, with SCRAM, bootstrap/owner/runtime identities,
-a pos_store database and no business tables. Backend and database services use LocalService with
+a pos_store database and no business tables. Backend and database services use distinct NT SERVICE virtual accounts with
 service-specific filesystem permissions. Service restart is automatic; no staff session is required.
 
 ## Slave pairing and management
