@@ -10,6 +10,7 @@
   <modules>
     <module>pos-domain</module>
     <module>pos-contracts</module>
+    <module>pos-installation</module>
     <module>pos-emergency</module>
     <module>pos-printing</module>
     <module>store-server</module>
@@ -29,6 +30,10 @@
     <flyway.version>11.7.2</flyway.version>
     <junit.version>5.12.2</junit.version>
     <jackson.version>2.21.5</jackson.version>
+    <weld.version>6.0.4.Final</weld.version>
+    <bouncycastle.version>1.83</bouncycastle.version>
+    <jna.version>5.18.1</jna.version>
+    <jmdns.version>3.6.3</jmdns.version>
     <archunit.version>1.5.1</archunit.version>
     <spotless.version>2.44.3</spotless.version>
     <google-java-format.version>1.28.0</google-java-format.version>
