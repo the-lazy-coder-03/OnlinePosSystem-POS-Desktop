@@ -16,7 +16,7 @@ No fake platform adapter is selected outside tests.
 CI builds a private unsigned development installer. Install Master components on the intended Master,
 or Slave components on other terminals. The package bundles Java/JavaFX; installed terminals need no JDK.
 Open JavaFX, select the branch and role, enter an installation-administrator password of at least
-12 characters and authorize UAC. Initial dependency installation requires internet.
+5 characters and authorize UAC. Initial dependency installation requires internet.
 
 For Slave setup, generate an invitation on the Master using the protected management instructions in
 [Windows operations](docs/development/stage2-windows.md). Paste its JSON into JavaFX. Optional manual

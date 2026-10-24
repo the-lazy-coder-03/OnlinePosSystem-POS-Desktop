@@ -36,14 +36,16 @@ Manual addresses must still satisfy the same TLS hostname, CA and branch/cluster
 
 ## Files and privileges
 installation.json is public metadata, with atomic writes and immutable installation identity.
-administrator.json contains a PBKDF2-HMAC-SHA256 verifier (600,000 iterations and random salt), persisted
+administrator.json contains a PBKDF2-HMAC-SHA256 verifier (600,000 iterations and random salt;
+five-character minimum selected by the user), persisted
 failed-attempt/lock state. Management uses a cross-process lock. Windows provisioning separately holds
 an exclusive operation lock for its full lifecycle.
 
 WindowsSecretStore wraps credentials/PKCS12 material with machine DPAPI; ACLs are also essential because
-machine DPAPI is not user authorization. Backend grants are limited to necessary certificates, pairing,
+machine DPAPI is not user authorization. Backend/database services use distinct NT SERVICE virtual accounts. Backend grants are limited to necessary certificates, pairing,
 runtime and logs; owner/bootstrap database credentials and installation-administrator verifier are
 administrative material. Runtime PKCS12 files remain password encrypted under the protected data root.
+Verified elevated payloads are cached under administrator-only ProgramData\OnlinePOS\downloads.
 
 The CA remains per cluster. DHCP/hostname changes outside the original SANs must fail trust checks;
 repairing/reissuing the server certificate is an explicit protected maintenance operation, not a reason

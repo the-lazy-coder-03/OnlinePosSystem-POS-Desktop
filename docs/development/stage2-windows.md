@@ -13,8 +13,10 @@ SDK signtool; no signing identity is supplied and no production release is appro
 
 dependencies.json pins the Inno 6.7.3, WinSW 2.12.0, PostgreSQL 16.15 and Microsoft VC runtime payloads
 by immutable source URL and SHA-256. Mismatches block execution. The package includes a JDK/runtime
-inventory, application-file manifest and installer SHA256SUMS. PostgreSQL/VC dependencies download
-during initial Master or Backup component setup; Java runtime and backend are bundled.
+inventory, application-file manifest and installer SHA256SUMS. Only PostgreSQL bin/lib/share and license notices are extracted; pgAdmin is omitted. A completion marker
+allows safe retry after interrupted runtime extraction. PostgreSQL/VC dependencies download
+during initial Master or Backup component setup; Java runtime and backend are bundled. Elevated setup
+uses the administrator-protected ProgramData\OnlinePOS\downloads cache.
 
 ## Master
 Choose Master components in the installer, then configure Master in JavaFX. Windows elevation applies
