@@ -6,7 +6,7 @@
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>OnlinePosSystem POS Desktop</name>
-  <description>Stage 2 JavaFX CDI and protected Windows installation. No sales or cloud connectivity.</description>
+  <description>Stage 3 JavaFX desktop and local PostgreSQL authority foundation. No sales or cloud connectivity.</description>
   <modules>
     <module>pos-domain</module>
     <module>pos-contracts</module>

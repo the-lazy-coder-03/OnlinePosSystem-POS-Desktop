@@ -21,7 +21,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
@@ -38,6 +38,23 @@ jobs:
             [System.Management.Automation.Language.Parser]::ParseFile($script.FullName,[ref]$tokens,[ref]$parseErrors) | Out-Null
             if ($parseErrors) { throw ($parseErrors | Out-String) }
           }
+      - name: Start disposable PostgreSQL 16 tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          test -x /usr/lib/postgresql/16/bin/initdb
+          POS_TEST_PG_BIN=/usr/lib/postgresql/16/bin python3 tools/postgres-test.py
+      - name: Start disposable PostgreSQL 16.15 tests (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $archive=& .\windows-installer\scripts\Dependencies.ps1 -Name postgres
+          $testRuntime=Join-Path $env:RUNNER_TEMP 'stage3-postgres-runtime'
+          New-Item $testRuntime -ItemType Directory -Force|Out-Null
+          & (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $archive -C $testRuntime 'pgsql/bin' 'pgsql/lib' 'pgsql/share'
+          if($LASTEXITCODE -ne 0){throw 'Cannot extract verified PostgreSQL test binaries'}
+          $env:POS_TEST_PG_BIN=Join-Path $testRuntime 'pgsql\bin'
+          python tools/postgres-test.py
+          if($LASTEXITCODE -ne 0){throw 'Cannot start disposable test database'}
       - name: Build, format, analyse and test (Linux)
         if: runner.os == 'Linux'
         run: ./mvnw -B -ntp clean install
@@ -65,6 +82,20 @@ jobs:
         timeout-minutes: 15
         shell: powershell
         run: .\windows-installer\scripts\Test-Package.ps1
+      - name: Capture installed service diagnostics
+        if: runner.os == 'Windows' && always()
+        shell: powershell
+        run: |
+          $logRoot=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'OnlinePOS\logs'
+          $destination='windows-installer\target\service-logs'
+          if(Test-Path $logRoot){New-Item $destination -ItemType Directory -Force|Out-Null;Copy-Item (Join-Path $logRoot '*.log') $destination -ErrorAction SilentlyContinue}
+      - name: Stop disposable test PostgreSQL
+        if: always()
+        shell: pwsh
+        run: |
+          if($env:POS_TEST_CLUSTER_ROOT){
+            & (Join-Path $env:POS_TEST_PG_BIN 'pg_ctl') -D (Join-Path $env:POS_TEST_CLUSTER_ROOT 'data') -m fast -w stop
+          }
       - name: Publish private Windows test installer
         if: runner.os == 'Windows' && always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -75,6 +106,7 @@ jobs:
             windows-installer/target/SHA256SUMS.txt
             windows-installer/target/packaged-fx*.log
             windows-installer/target/stage/release-manifest.json
+            windows-installer/target/service-logs/*.log
           if-no-files-found: warn
       - name: Publish test evidence
         if: always()

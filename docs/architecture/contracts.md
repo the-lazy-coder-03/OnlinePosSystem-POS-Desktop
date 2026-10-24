@@ -60,3 +60,37 @@ Installation state now persists version, installation/cluster/terminal UUIDs, br
 and provisioning state; credentials live separately in DPAPI files. See stage2-cdi.md for ownership.
 Business command APIs remain unavailable; acceptingSales, cloudSyncEnabled and automaticPromotionEnabled
 remain false in all installed health responses.
+
+## Stage 3 local authority APIs
+
+Installed business requests require an enrolled TLS terminal and a terminal-bound staff bearer token.
+`POST /api/local/auth/login` requires the terminal plus username/password; it returns a token valid for eight
+hours. `POST /api/local/auth/logout` invalidates it; `GET /api/local/auth/me` returns the current local staff
+identity. No cookies or customer credentials authorize these APIs.
+
+| API | Scope |
+| --- | --- |
+| `GET /api/local/menu` | Read the installed branch's confirmed catalogue/variants (empty before Stage 4) |
+| `GET /api/local/branches/{branch}/menu` | Explicit branch-checked equivalent |
+| `PATCH /api/local/branches/{branch}/prices/{priceId}` | Manager: command UUID, expected revision, exact amount, availability |
+| `POST /api/local/branches/{branch}/drafts` | Command UUID, original order UUID, unique line UUIDs, price IDs/revisions and quantities |
+| `GET /api/local/branches/{branch}/drafts/{orderId}` | Read persisted draft and immutable line snapshots |
+| `POST /api/local/branches/{branch}/drafts/{orderId}/cancel` | Command UUID plus expected draft revision |
+| `GET /api/local/staff` | Manager: redacted account list |
+| `PUT /api/local/staff` | Manager: command/staff UUIDs, username, role, enabled, expected revision, optional new password |
+| `GET /api/local/printer` | Current terminal, printing unavailable |
+| `GET /api/local/configuration` | Installed branch/cluster and explicitly disabled business capabilities |
+
+`LocalCommands` is container-independent Java. Monetary input rejects fractional cents and negative prices.
+Draft creation prices from PostgreSQL, never a client total. Same UUID/content/origin retries return the
+committed result; UUID reuse with changed content/origin or stale revisions returns 409. Unknown/malformed
+input returns 400, missing staff session 401, cross-branch/permission errors 403, missing draft 404.
+
+Price and draft commands lock the branch stream row through commit and write receipt, audit and outbox in
+the same transaction. Canonical payload hashing sorts object keys and preserves decimal precision. Staff
+administration also deduplicates commands, serializes and invalidates stale sessions; a concurrent already-authenticated write
+rechecks staff version/role while holding the stream lock.
+
+No `/api/local/orders` sales endpoint, payment, staff JavaFX screens, catalogue import, cloud exchange,
+outbox sender or promotion endpoint exists. Health remains liveness with `acceptingSales=false`. Installed
+diagnostics reports local database readiness without connection strings, password hashes or tokens.

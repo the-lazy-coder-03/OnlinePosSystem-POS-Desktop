@@ -1,9 +1,26 @@
 $ErrorActionPreference='Stop'
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $out=Join-Path $root 'windows-installer\target'
-$installer=Join-Path $out 'OnlinePOS-0.2.0-Development.exe'
+$installer=Join-Path $out 'OnlinePOS-0.3.0-Development.exe'
 $program=Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'OnlinePOS'
 $data=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'OnlinePOS'
+function Invoke-SecretProcess([string]$Executable,[string]$Arguments,[string[]]$InputLines) {
+ $start=New-Object Diagnostics.ProcessStartInfo
+ $start.FileName=$Executable;$start.Arguments=$Arguments
+ $start.UseShellExecute=$false;$start.CreateNoWindow=$true
+ $start.RedirectStandardInput=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $child=New-Object Diagnostics.Process;$child.StartInfo=$start
+ try {
+  [void]$child.Start()
+  $output=$child.StandardOutput.ReadToEndAsync();$errors=$child.StandardError.ReadToEndAsync()
+  $encoded=[Text.Encoding]::UTF8.GetBytes(($InputLines -join "`n")+"`n")
+  try {$child.StandardInput.BaseStream.Write($encoded,0,$encoded.Length)}finally{[Array]::Clear($encoded,0,$encoded.Length)}
+  $child.StandardInput.Close()
+  if(-not $child.WaitForExit(120000)){$child.Kill();throw 'Protected CI process timed out'}
+  Write-Output $output.Result;Write-Host $errors.Result
+  if($child.ExitCode -ne 0){throw 'Protected CI process failed'}
+ } finally {$child.Dispose()}
+}
 function Install-Role([string]$Role) {
  Write-Output ('TEST_INSTALL_'+$Role)
  $p=Start-Process $installer -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/TYPE=$Role")
@@ -70,8 +87,10 @@ try{
  foreach($service in @('OnlinePOSStore','OnlinePOSPostgres')){
   if((Get-Service $service).Status -ne 'Running'){throw "Service not running: $service"}
   if((Get-CimInstance Win32_Service -Filter "Name='$service'").StartName -ne ('NT SERVICE\'+$service)){throw 'Service does not use its dedicated virtual account'}
-  Restart-Service $service
  }
+ Stop-Service OnlinePOSStore
+ Restart-Service OnlinePOSPostgres
+ Start-Service OnlinePOSStore
  & (Join-Path $program 'desktop\runtime\bin\java.exe') -cp (Join-Path $program 'desktop\app\*') za.co.onlinepos.installation.SetupTool pair-local
  if($LASTEXITCODE -ne 0){throw 'Paired Master self-test failed'}
  # Repeat provisioning must preserve identity and database.
@@ -88,14 +107,36 @@ try{
   $grants=& $pg -X -h 127.0.0.1 -p 55432 -U pos_bootstrap -d pos_store -At -c "SELECT count(*) FROM pg_roles WHERE rolname IN ('pos_owner','pos_runtime') AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole"
   if($LASTEXITCODE -ne 0 -or $grants -ne '2'){throw 'Incorrect PostgreSQL role grants'}
   $tables=& $pg -X -h 127.0.0.1 -p 55432 -U pos_bootstrap -d pos_store -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"
-  if($LASTEXITCODE -ne 0 -or $tables -ne '0'){throw 'Stage 2 created business tables'}
+  if($LASTEXITCODE -ne 0 -or $tables -ne '1'){throw 'Expected Flyway history only in public schema'}
+  $localTables=& $pg -X -h 127.0.0.1 -p 55432 -U pos_bootstrap -d pos_store -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='pos'"
+  if($LASTEXITCODE -ne 0 -or [int]$localTables -lt 15){throw 'Stage 3 local schema missing'}
+  $runtimeDdl=& $pg -X -h 127.0.0.1 -p 55432 -U pos_bootstrap -d pos_store -At -c "SELECT has_schema_privilege('pos_runtime','pos','CREATE')"
+  if($runtimeDdl -ne 'f'){throw 'Runtime can create schema objects'}
+  Write-Output 'WINDOWS_STAGE3_MIGRATIONS_RUNTIME_GRANTS_OK'
  }finally{Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue}
  $cachePath=Join-Path $data 'downloads'
  if(-not(Test-Path $cachePath)){throw 'Elevated setup did not use the protected machine cache'}
  foreach($rule in (Get-Acl $cachePath).Access){
   if($rule.AccessControlType -eq 'Allow' -and ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write) -and $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin @('S-1-5-18','S-1-5-32-544')){throw 'Payload cache permits untrusted writes'}
  }
- Write-Output 'WINDOWS_MASTER_INSTALL_REPAIR_GRANTS_FIREWALL_OK'
+ # Bootstrap staff through the protected owner console, then call the real installed TLS API.
+ $staffPassword=([guid]::NewGuid()).ToString()
+ try {
+  $powershell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  $databaseScript=Join-Path $program 'setup\Local-Database.ps1'
+  Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation BootstrapStaff -Username ci.manager -PasswordStdin') -InputLines @($password,$staffPassword)
+  if($LASTEXITCODE -ne 0){throw 'Protected staff bootstrap failed'}
+  $classes=Join-Path $out 'stage3-test-client';New-Item $classes -ItemType Directory -Force|Out-Null
+  $clientPath=Join-Path $program 'desktop\app\*'
+  & (Join-Path $env:JAVA_HOME 'bin\javac.exe') -cp $clientPath -d $classes (Join-Path $root 'tools\WindowsStaffSmoke.java')
+  if($LASTEXITCODE -ne 0){throw 'Cannot compile the isolated test client'}
+  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke') -InputLines @($staffPassword)
+  if($LASTEXITCODE -ne 0){throw 'Installed staff TLS API failed'}
+  Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation Backup -PasswordStdin') -InputLines @($password)
+  if($LASTEXITCODE -ne 0 -or -not(Get-ChildItem (Join-Path $data 'backups') -Filter '*.dpapi')){throw 'Protected encrypted backup failed'}
+  if(Get-ChildItem (Join-Path $data 'backups') -Filter '*.dump'){throw 'Successful backup retained plaintext'}
+ }finally{$staffPassword=$null}
+ Write-Output 'WINDOWS_MASTER_INSTALL_REPAIR_GRANTS_FIREWALL_OK' 
  $masterUninstall=Start-Process (Join-Path $program 'unins000.exe') -Wait -PassThru -ArgumentList '/VERYSILENT'
  if($masterUninstall.ExitCode -ne 0){throw 'Configured Master uninstall failed'}
  if(-not(Test-Path (Join-Path $data 'postgres-data\PG_VERSION')) -or -not(Test-Path (Join-Path $data 'secrets\database-bundle.dpapi'))){throw 'Master uninstall removed database or keys'}

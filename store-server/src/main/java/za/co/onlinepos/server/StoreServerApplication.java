@@ -6,7 +6,12 @@ import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServic
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
 
-@SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
+@SpringBootApplication(
+    exclude = {
+      UserDetailsServiceAutoConfiguration.class,
+      org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration.class,
+      org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration.class
+    })
 public class StoreServerApplication extends SpringBootServletInitializer {
   @Override
   protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
@@ -14,6 +19,10 @@ public class StoreServerApplication extends SpringBootServletInitializer {
   }
 
   public static void main(String[] args) throws Exception {
+    if (java.util.Arrays.stream(args).anyMatch(arg -> arg.startsWith("--database-tool="))) {
+      DatabaseTool.main(args);
+      return;
+    }
     boolean installed =
         java.util.Arrays.asList(args).contains("--spring.profiles.active=installed");
     SpringApplication application = new SpringApplication(StoreServerApplication.class);
