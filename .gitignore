@@ -14,3 +14,6 @@
 *.jks
 runtime/
 logs/
+
+*.dpapi
+**/administrator.json

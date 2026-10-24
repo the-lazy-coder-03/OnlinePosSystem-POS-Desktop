@@ -69,17 +69,19 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
             invitation.token(),
             Base64.getEncoder().encodeToString(key.getPublic().getEncoded()),
             Base64.getEncoder().encodeToString(signature.sign()));
-    var response =
-        client(invitation, secrets, false)
-            .send(
-                HttpRequest.newBuilder(endpoint(invitation, "/api/local/setup/pair"))
-                    .timeout(Duration.ofSeconds(15))
-                    .header("Content-Type", "application/json")
-                    .POST(
-                        HttpRequest.BodyPublishers.ofByteArray(
-                            JsonFiles.JSON.writeValueAsBytes(request)))
-                    .build(),
-                HttpResponse.BodyHandlers.ofByteArray());
+    HttpResponse<byte[]> response;
+    try (var http = client(invitation, secrets, false)) {
+      response =
+          http.send(
+              HttpRequest.newBuilder(endpoint(invitation, "/api/local/setup/pair"))
+                  .timeout(Duration.ofSeconds(15))
+                  .header("Content-Type", "application/json")
+                  .POST(
+                      HttpRequest.BodyPublishers.ofByteArray(
+                          JsonFiles.JSON.writeValueAsBytes(request)))
+                  .build(),
+              HttpResponse.BodyHandlers.ofByteArray());
+    }
     if (response.statusCode() != 200)
       throw new SecurityException("Pairing refused: " + response.statusCode());
     var reply = JsonFiles.JSON.readValue(response.body(), Pairing.Reply.class);
@@ -117,14 +119,16 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
 
   public Pairing.Identity identity(Pairing.Invitation invitation, SecretStore secrets)
       throws Exception {
-    var response =
-        client(invitation, secrets, true)
-            .send(
-                HttpRequest.newBuilder(endpoint(invitation, "/api/local/identity"))
-                    .timeout(Duration.ofSeconds(10))
-                    .GET()
-                    .build(),
-                HttpResponse.BodyHandlers.ofByteArray());
+    HttpResponse<byte[]> response;
+    try (var http = client(invitation, secrets, true)) {
+      response =
+          http.send(
+              HttpRequest.newBuilder(endpoint(invitation, "/api/local/identity"))
+                  .timeout(Duration.ofSeconds(10))
+                  .GET()
+                  .build(),
+              HttpResponse.BodyHandlers.ofByteArray());
+    }
     if (response.statusCode() != 200)
       throw new SecurityException("Trusted identity refused: " + response.statusCode());
     var identity = JsonFiles.JSON.readValue(response.body(), Pairing.Identity.class);

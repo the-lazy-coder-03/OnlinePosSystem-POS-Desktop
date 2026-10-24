@@ -18,7 +18,7 @@ try {
  $runtime=Join-Path $out 'runtime'
  if(Test-Path $runtime){Remove-Item $runtime -Recurse -Force}
  # Temurin 25 links from its runtime image and need not contain a jmods directory (JEP 493).
- $modules=((& (Join-Path $env:JAVA_HOME 'bin\java.exe') --list-modules)|ForEach-Object{($_ -split '@')[0]}) -join ','
+ $modules=((& (Join-Path $env:JAVA_HOME 'bin\java.exe') --list-modules)|ForEach-Object{($_ -split '@')[0]}|Where-Object{$_ -notin @('jdk.jlink','jdk.jpackage')}) -join ','
  if($LASTEXITCODE -ne 0 -or -not $modules){throw 'Cannot enumerate bundled JDK modules'}
  & (Join-Path $env:JAVA_HOME 'bin\jlink.exe') --add-modules $modules --strip-debug --no-header-files --no-man-pages --output $runtime
  if($LASTEXITCODE -ne 0){throw 'Runtime generation failed'}

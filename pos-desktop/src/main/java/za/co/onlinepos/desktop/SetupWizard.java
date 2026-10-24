@@ -210,7 +210,9 @@ final class SetupWizard extends BorderPane {
           });
       Label explanation =
           new Label(
-              "Review your selection, then authorize Windows setup. Slave pairing requires an invitation from the correct Master.");
+              selection.role() == InstallationRole.MASTER
+                  ? "Setup creates a dedicated PostgreSQL cluster, database identities, HTTPS certificates, Windows backend/database services and Private-network firewall rules. Existing data is preserved. Windows will request administrator consent."
+                  : "Setup registers this terminal with the invited Master and stores protected terminal credentials. It installs no database or backend service. Windows will request administrator consent.");
       explanation.setWrapText(true);
       Button back = new Button("Back to setup");
       back.setOnAction(event -> setCenter(form));

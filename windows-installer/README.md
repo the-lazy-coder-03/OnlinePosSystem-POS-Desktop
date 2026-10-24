@@ -1,16 +1,16 @@
-# Windows packaging boundary — Stage 1
+# Windows Stage 2 development installers
 
-This Maven POM module reserves Windows packaging ownership. It does not produce an installer yet.
+Build on Windows x64 with JDK 25 after the Maven reactor is installed:
 
-Stage 2 will build on Windows x64 using jpackage application images and a signed bootstrap installer.
-Bundle the Java runtime and released backend; verify every externally acquired payload against the
-approved release manifest. Runtime executables belong under Program Files and protected machine data
-under ProgramData. An ordinary Slave receives neither PostgreSQL nor the backend service.
+```powershell
+.\windows-installer\scripts\Build-Package.ps1 -Channel Development
+```
 
-Master provisions a dedicated PostgreSQL cluster and least-privilege backend service. Backup Master
-requires a protected workflow and starts as a standby. No two-node automatic promotion is allowed.
-Pairing, LAN TLS and firewall rules must be implemented together before exposing the backend to a LAN.
+The unsigned Inno installer bundles JavaFX and its runtime. Slave installs exclude the backend and
+PostgreSQL service. Master provisions a dedicated cluster; managed Backup components remain inactive
+and unseeded. External payload URLs and SHA-256 values are locked in dependencies.json.
 
-No PostgreSQL installer URL/hash is fabricated here: there is no installer payload in Stage 1.
-Acquire, verify and lock those platform payloads only in the separately approved installer stage.
-Uninstall and role changes must preserve databases, keys and unresolved terminal queues.
+See [operations and rollback](../docs/development/stage2-windows.md) and
+[Stage 2 evidence](../docs/stages/02-windows-setup.md). Test-Package.ps1 is destructive to app-owned
+resources and must only run on disposable Windows CI/VMs. Production signing and Windows 10/11 client
+validation remain release gates. Sales, business migrations, replication and automatic promotion are absent.

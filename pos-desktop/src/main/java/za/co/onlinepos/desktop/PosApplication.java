@@ -25,6 +25,16 @@ public final class PosApplication extends Application {
 
   @Override
   public void start(Stage stage) {
+    boolean started = false;
+    try {
+      show(stage);
+      started = true;
+    } finally {
+      if (!started) stop();
+    }
+  }
+
+  private void show(Stage stage) {
     SetupWizard wizard = container.view();
     Scene scene = new Scene(wizard, 720, 740);
     scene

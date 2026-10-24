@@ -14,6 +14,11 @@ public record SetupRequest(
     this(branchId, role, terminalName, invitation, "");
   }
 
+  @Override
+  public String toString() {
+    return "SetupRequest[branch=" + branchId + ", role=" + role + ", invitation=REDACTED]";
+  }
+
   public SetupRequest {
     masterAddress = masterAddress == null ? "" : masterAddress.strip();
     Branch.fromId(branchId);

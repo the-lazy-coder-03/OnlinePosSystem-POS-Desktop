@@ -23,11 +23,13 @@ over-the-shoulder elevation under a different administrator must fail safely if 
 Use at least 12 characters for the installation administrator; it is separate from future staff login.
 
 Default HTTPS port is 8443, PostgreSQL 55432. Before provisioning, an administrator may create
-C:\ProgramData\OnlinePOS\network.json with httpsPort/postgresPort (distinct integers 1024–65535).
+C:\ProgramData\OnlinePOS\network.json with httpsPort/postgresPort (distinct integers 1024–65535) and optional storeSubnet,
+for example {"httpsPort":8443,"postgresPort":55432,"storeSubnet":"192.168.1.0/24"}.
+The subnet must be an RFC1918 IPv4 CIDR; public or overly broad ranges are rejected.
 Changing a PostgreSQL port after initialization requires a separately planned maintenance change;
 do not edit only one side of an existing deployment.
-Firewall access is limited to the Private profile and LocalSubnet. Tighten the rule to the actual store
-subnet during client VM/LAN validation; do not open it on Public profiles or expose PostgreSQL.
+Firewall access is limited to the Private profile and LocalSubnet. Set storeSubnet to the selected store
+network during setup; do not open it on Public profiles or expose PostgreSQL.
 
 PostgreSQL is a dedicated cluster, loopback-only, with SCRAM, bootstrap/owner/runtime identities,
 a pos_store database and no business tables. Backend and database services use LocalService with
@@ -50,13 +52,17 @@ and elevation are mandatory. The backend is disabled; no standby database is see
 
 A fresh Slave installs no backend or PostgreSQL. Master demotion and any transition involving existing
 PostgreSQL data are deliberately refused pending a verified ownership/data handover. This restriction
-must not be bypassed by editing installation.json. No automatic failover is implemented.
+must not be bypassed by editing installation.json. No automatic failover is implemented. A configured Slave may deliberately create a new independent
+Master with Manage.ps1 -Action Master after installing Master components; this creates a new cluster
+identity and must never be used to silently replace a disconnected branch Master.
 
 ## Recovery and rollback
 Interrupted provisioning leaves CONFIGURING state and a redacted provisioning.log. Re-run the same setup
 with the same branch/role and administrator credential; installed identities and database directory must
-be preserved. Never delete populated data to repair installation. An incomplete certificate or pairing
-operation may require protected repair/reissue; do not disable TLS or create a second Master.
+be preserved. Never delete populated data to repair installation. Certificate bundles commit their CA key last, so interrupted first creation can be retried. If a pairing
+response is lost before the terminal saves its certificate, revoke that terminal UUID on the Master,
+issue a new invitation, and retry the same installation. A revoked registration may be replaced only
+with a fresh invitation; used tokens remain rejected. Do not disable TLS or create a second Master.
 
 Uninstall stops/removes app-owned services and firewall rules before removing binaries; failure to stop
 services cancels uninstall. ProgramData is retained, including database, keys and unresolved future queues.

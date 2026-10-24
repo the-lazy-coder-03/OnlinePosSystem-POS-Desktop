@@ -67,6 +67,21 @@ class PairingSecurityTest {
     assertFalse(
         new TerminalRegistry(root, Clock.systemUTC(), identity, secrets).authorized(certificate));
     assertFalse(invitation.toString().contains(invitation.token()));
+    // Lost-response recovery keeps the installation UUID; a manager revokes and reissues trust.
+    var replacement = registry.invite("https://localhost:8443");
+    proof.initSign(key.getPrivate());
+    proof.update((replacement.token() + ":" + terminal).getBytes(StandardCharsets.UTF_8));
+    var repaired =
+        registry.redeem(
+            new Pairing.Request(
+                identity.clusterId(),
+                1,
+                terminal,
+                replacement.token(),
+                request.publicKey(),
+                Base64.getEncoder().encodeToString(proof.sign())));
+    assertTrue(registry.authorized(Certificates.parse(repaired.clientCertificate())));
+    assertFalse(registry.authorized(certificate));
   }
 
   @Test

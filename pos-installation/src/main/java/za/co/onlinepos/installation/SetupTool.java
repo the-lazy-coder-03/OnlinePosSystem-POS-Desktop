@@ -47,6 +47,7 @@ public final class SetupTool {
           if (Files.exists(root.resolve("administrator.json"))) administrator.verify(password);
           else administrator.initialize(password);
           SetupRequest request = envelope.request();
+          NetworkSettings.load(root);
           var previous = repository.load();
           Installation identity =
               previous.orElseGet(
@@ -62,7 +63,9 @@ public final class SetupTool {
                           "CONFIGURING"));
           if (previous.isPresent()
               && (identity.branchId() != request.branchId() || identity.role() != request.role())) {
-            if (identity.role() == InstallationRole.MASTER
+            if ((identity.role() == InstallationRole.BACKUP_MASTER
+                    && request.role() == InstallationRole.MASTER)
+                || identity.role() == InstallationRole.MASTER
                 || Files.exists(root.resolve("postgres-data"))
                 || Files.exists(root.resolve("pending-orders")))
               throw new SecurityException(
@@ -96,6 +99,8 @@ public final class SetupTool {
             var serverKey = Certificates.keyPair();
             String host = java.net.InetAddress.getLocalHost().getHostName();
             List<String> hosts = new java.util.ArrayList<>(List.of(host, "localhost", "127.0.0.1"));
+            hosts.add(java.net.InetAddress.getLocalHost().getCanonicalHostName());
+            if (!host.endsWith(".local")) hosts.add(host + ".local");
             var interfaces = java.net.NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements())
               for (var address :
@@ -105,7 +110,6 @@ public final class SetupTool {
                 Certificates.issue(
                     host, serverKey.getPublic(), ca, caKey.getPrivate(), false, false, hosts);
             String pkiPassword = UUID.randomUUID().toString();
-            secrets.put("ca-key", caKey.getPrivate().getEncoded());
             secrets.put(
                 "ca-certificate", Certificates.encode(ca).getBytes(StandardCharsets.US_ASCII));
             secrets.put("pki-password", pkiPassword.getBytes(StandardCharsets.US_ASCII));
@@ -113,6 +117,8 @@ public final class SetupTool {
                 "server-p12",
                 Certificates.store(serverKey.getPrivate(), server, ca, pkiPassword.toCharArray()));
             secrets.put("trust-p12", Certificates.store(null, null, ca, pkiPassword.toCharArray()));
+            // Last write commits this bundle; interrupted first setup can safely regenerate it.
+            secrets.put("ca-key", caKey.getPrivate().getEncoded());
           }
           if (request.role() == InstallationRole.MASTER
               && !Files.exists(root.resolve("secrets/database-bundle.dpapi")))
@@ -131,7 +137,23 @@ public final class SetupTool {
                 JsonFiles.JSON.readValue(request.invitation(), Pairing.Invitation.class);
             if (invitation.branchId() != request.branchId())
               throw new SecurityException("Invitation belongs to another branch");
-            var reply = new TrustedStoreClient().pair(invitation, identity.terminalId(), secrets);
+            var client = new TrustedStoreClient();
+            Pairing.Identity reply;
+            if (Files.exists(root.resolve("secrets/terminal-p12.dpapi"))) {
+              var saved =
+                  JsonFiles.JSON.readValue(secrets.get("pairing-trust"), Pairing.Invitation.class);
+              if (!saved.clusterId().equals(invitation.clusterId())
+                  || saved.branchId() != invitation.branchId()
+                  || !saved.caFingerprint().equals(invitation.caFingerprint()))
+                throw new SecurityException(
+                    "Existing terminal trust cannot be replaced during repair");
+              try {
+                reply = client.identity(invitation, secrets);
+              } catch (SecurityException revoked) {
+                // A fresh administrator-issued invitation may replace a revoked registration.
+                reply = client.pair(invitation, identity.terminalId(), secrets);
+              }
+            } else reply = client.pair(invitation, identity.terminalId(), secrets);
             identity =
                 new Installation(
                     1,
@@ -152,7 +174,13 @@ public final class SetupTool {
         Installation identity = repository.load().orElseThrow();
         if (identity.role() != InstallationRole.MASTER)
           throw new SecurityException("Master required");
-        if (!Files.exists(root.resolve("secrets/terminal-p12.dpapi"))) {
+        boolean needsPairing = !Files.exists(root.resolve("secrets/terminal-p12.dpapi"));
+        if (!needsPairing) {
+          var priorTrust =
+              JsonFiles.JSON.readValue(secrets.get("pairing-trust"), Pairing.Invitation.class);
+          needsPairing = !priorTrust.clusterId().equals(identity.clusterId());
+        }
+        if (needsPairing) {
           var registry = new TerminalRegistry(root, Clock.systemUTC(), identity, secrets);
           var invitation =
               registry.invite("https://localhost:" + NetworkSettings.load(root).httpsPort());

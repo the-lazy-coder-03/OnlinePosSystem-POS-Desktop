@@ -36,5 +36,12 @@
 15. Backups, update signing, retained events and branch ownership handover are recovery mechanisms;
     toggling a feature flag or restoring an old database is not sufficient rollback after accepting sales.
 
+16. JavaFX uses Jakarta CDI/Weld SE 6.0.4.Final with constructor injection, explicit scopes and lifecycle
+    disposal. Spring DI remains confined to the backend. Domain/contracts are container independent;
+    installation ports isolate Windows, filesystem and HTTPS operations from presenters.
+17. Stage 2 installers are unsigned development packages in a private repository. Production signing,
+    Windows 10/11 client UAC/reboot/LAN checks and later business stages require their separate gates.
+    An unseeded Backup cannot promote or run as an installed Master.
+
 These decisions refine the original staged plan. A stage's completion does not authorize the next stage,
 deployment, production migrations, branch activation or automatic failover.

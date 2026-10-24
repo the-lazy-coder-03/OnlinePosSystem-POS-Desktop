@@ -125,19 +125,48 @@
 
 **Acceptance:** Windows CI builds and launches the skeleton; tests pass; repository is independent and has no production secrets.
 
-### Stage 2: Windows installer, machine roles and LAN discovery
+### Stage 2: Windows installation, JavaFX CDI and trusted LAN connectivity
 
-**Goal:** Install Master and Slave from one controlled distribution.
+**Goal:** Install Master and Slave from one controlled distribution, preserving loose coupling.
+
+**Approved Stage 2 refinement:** JavaFX remains the desktop UI with Jakarta CDI/Weld SE 6.0.4.Final;
+Spring Boot remains a separate Windows service using Spring DI. Unsigned development installers and
+private Windows CI artifacts are authorized; production signing and Windows 10/11 client validation
+remain separate release gates. No business schema, staff accounts, sales, H2 order persistence,
+cloud synchronisation or replication is authorized in this stage.
+
+**Dependency injection and boundaries:**
+- Start one Weld SE container in JavaFX startup; close it on normal shutdown and failed startup.
+  JavaFX owns Application/Stage and all control construction stays on the JavaFX Application Thread.
+- Resolve only the composition root from CDI. Use constructor injection, final dependencies,
+  application-scoped thread-safe services, dependent presenters and explicit dependent disposal.
+  Producer disposers release executors, discovery listeners and network clients. Keep programmatic views.
+- Put InstallationService, PlatformProvisioner, InstallationRepository, SecretStore, PairingClient,
+  MasterDiscovery, StoreApiClient and DiagnosticsService behind narrow substitutable ports.
+  Controllers delegate; Windows/HTTPS/filesystem adapters implement the operations.
+- Keep domain/contracts free of Spring/CDI. Never start Weld in the backend or mix container lifecycle
+  annotations. Architecture tests reject framework leakage and circular package dependencies.
+- Never select fake provisioning automatically on an unsupported operating system.
+
+The current implementation/contract details and validation evidence are maintained in
+[Stage 2 report](../docs/stages/02-windows-setup.md),
+[CDI architecture](../docs/architecture/stage2-cdi.md) and
+[Windows operations](../docs/development/stage2-windows.md).
 
 **Codex tasks:**
-- Implement an elevated Windows first-run setup flow with `Master` and `Slave` modes and protected role-switch workflow.
+- Keep JavaFX unelevated; elevate only a validated installation helper. Support resumable Master/Slave setup, protected installation-administrator authentication and deliberate role changes.
 - Master: acquire official/checksummed PostgreSQL installer if not already installed, provision dedicated app DB roles, install/register the packaged Spring Boot service, start services on boot, configure local firewall for limited LAN API exposure, and install JavaFX.
 - Slave: install JavaFX with embedded file-backed H2 dependencies, but do not install PostgreSQL or start the store server by default.
 - Support self-test diagnostics, automatic authenticated LAN discovery and manual host/IP fallback; bind a Slave to the correct branch and server identity.
 - Define an advanced managed `Backup Master` provisioning workflow that installs the extra server/database components only on a deliberately selected candidate.
 - Provide uninstall/update/rollback steps that protect local production data.
 
-**Acceptance:** Fresh Windows VM install passes in both modes. Master services auto-restart after reboot. Slave resolves a trusted LAN Master. Role changes require admin authentication and safe migration checks.
+**Acceptance:** CDI resolution, cleanup, dependent disposal and adapter substitution pass; packaged JavaFX
+runs with its bundled runtime. Disposable Windows CI validates Master/Slave/unused Backup infrastructure,
+service restart, pairing/TLS/revocation, repair and data preservation. Windows 10/11 client VM UAC,
+reboot and real LAN discovery evidence remains an explicit release gate. Role changes require installation
+administrator authentication, elevation and safe ownership checks. Backup components remain inactive and
+unseeded; automatic promotion is disabled. Review this stage before granting Stage 3 permission.
 
 ### Stage 3: Local Spring Boot, local PostgreSQL and staff authentication
 
@@ -337,6 +366,6 @@ Before any cloud schema migration or production installation:
 - PostgreSQL 16 failover and the requirement to avoid two primaries: https://www.postgresql.org/docs/16/warm-standby-failover.html
 - PostgreSQL 16 standby replication and durability trade-offs: https://www.postgresql.org/docs/16/warm-standby.html
 - H2 database features and embedded disk persistence: https://h2database.github.io/html/features.html
-- Java `jpackage` for Windows native installers: https://docs.oracle.com/en/java/javase/27/docs/specs/man/jpackage.html
+- Java `jpackage` for Windows native installers: https://docs.oracle.com/en/java/javase/25/docs/specs/man/jpackage.html
 
 **End of plan.**

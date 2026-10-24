@@ -94,7 +94,8 @@ public final class TerminalRegistry {
       InvitationRecord invitation = state.invitations().get(tokenDigest);
       if (invitation == null || invitation.expiresAt() <= clock.millis())
         throw new SecurityException("Invitation expired or already used");
-      if (state.terminals().containsKey(request.terminalId()))
+      if (state.terminals().containsKey(request.terminalId())
+          && !state.terminals().get(request.terminalId()).revoked())
         throw new SecurityException("Terminal already registered");
       var publicKey =
           KeyFactory.getInstance("RSA")

@@ -40,9 +40,9 @@ public final class WindowsProvisioner implements PlatformProvisioner {
                   "powershell.exe",
                   "-NoProfile",
                   "-Command",
-                  "$p=Start-Process powershell.exe -Verb RunAs -Wait -PassThru -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "
+                  "$p=Start-Process powershell.exe -Verb RunAs -PassThru -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand "
                       + encoded
-                      + "'; exit $p.ExitCode")
+                      + "'; $handle=$p.Handle; $p.WaitForExit(); exit $p.ExitCode")
               .inheritIO()
               .start();
       if (process.waitFor() != 0)
