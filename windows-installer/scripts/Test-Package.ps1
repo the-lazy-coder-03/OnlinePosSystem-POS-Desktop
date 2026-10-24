@@ -5,15 +5,18 @@ $installer=Join-Path $out 'OnlinePOS-0.2.0-Development.exe'
 $program=Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'OnlinePOS'
 $data=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'OnlinePOS'
 function Install-Role([string]$Role) {
+ Write-Output ('TEST_INSTALL_'+$Role)
  $p=Start-Process $installer -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/TYPE=$Role")
  if($p.ExitCode -ne 0){throw "Installer failed for $Role"}
 }
 Install-Role 'slave'
 if(Test-Path (Join-Path $program 'server\store-server.jar')){throw 'Slave installed backend components'}
 if(Get-Service OnlinePOSPostgres -ErrorAction SilentlyContinue){throw 'Slave installed PostgreSQL service'}
-$smoke=Start-Process (Join-Path $program 'desktop\OnlinePOS.exe') -ArgumentList '--smoke-test' -Wait -PassThru -RedirectStandardOutput (Join-Path $out 'packaged-fx.log') -RedirectStandardError (Join-Path $out 'packaged-fx-error.log')
+$smoke=Start-Process (Join-Path $program 'desktop\OnlinePOS.exe') -ArgumentList '--smoke-test' -PassThru -RedirectStandardOutput (Join-Path $out 'packaged-fx.log') -RedirectStandardError (Join-Path $out 'packaged-fx-error.log')
+if(-not $smoke.WaitForExit(60000)){Stop-Process -Id $smoke.Id -Force;throw 'Packaged JavaFX did not exit within 60 seconds'}
 if($smoke.ExitCode -ne 0 -or (Get-Content (Join-Path $out 'packaged-fx.log') -Raw) -notmatch 'DESKTOP_SMOKE_OK'){throw 'Packaged JavaFX launch failed'}
 if((Get-Content (Join-Path $out 'packaged-fx.log') -Raw) -notmatch 'DESKTOP_CDI_CLOSED'){throw 'Packaged CDI shutdown failed'}
+Write-Output 'PACKAGED_JAVAFX_CDI_OK'
 New-Item $data -ItemType Directory -Force|Out-Null
 Set-Content (Join-Path $data 'preserve.marker') 'preserve'
 $uninstall=Start-Process (Join-Path $program 'unins000.exe') -Wait -PassThru -ArgumentList '/VERYSILENT'
@@ -53,6 +56,7 @@ $body=@{request=@{branchId=1;role='MASTER';terminalName='CI Master';invitation='
 $plain=[Text.Encoding]::UTF8.GetBytes($body)
 try{
  [IO.File]::WriteAllBytes($request,[Security.Cryptography.ProtectedData]::Protect($plain,$null,[Security.Cryptography.DataProtectionScope]::LocalMachine))
+ Write-Output 'TEST_MASTER_PROVISION_OR_REPAIR'
  & (Join-Path $program 'setup\Provision.ps1') -RequestPath $request
  if($LASTEXITCODE -ne 0){throw 'Master provisioning failed'}
  $identity=Get-Content (Join-Path $data 'installation.json') -Raw|ConvertFrom-Json
@@ -64,6 +68,7 @@ try{
  & (Join-Path $program 'desktop\runtime\bin\java.exe') -cp (Join-Path $program 'desktop\app\*') za.co.onlinepos.installation.SetupTool pair-local
  if($LASTEXITCODE -ne 0){throw 'Paired Master self-test failed'}
  # Repeat provisioning must preserve identity and database.
+ Write-Output 'TEST_MASTER_PROVISION_OR_REPAIR'
  & (Join-Path $program 'setup\Provision.ps1') -RequestPath $request
  $again=Get-Content (Join-Path $data 'installation.json') -Raw|ConvertFrom-Json
  if($again.installationId -ne $identity.installationId){throw 'Retry changed identity'}

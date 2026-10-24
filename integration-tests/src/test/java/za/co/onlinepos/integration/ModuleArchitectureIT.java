@@ -84,6 +84,11 @@ class ModuleArchitectureIT {
         .should()
         .beFreeOfCycles()
         .check(classes);
+    com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices()
+        .matching("za.co.onlinepos.(**)")
+        .should()
+        .beFreeOfCycles()
+        .check(classes);
     noClasses()
         .that()
         .resideInAPackage("..desktop..")

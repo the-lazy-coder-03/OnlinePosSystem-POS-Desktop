@@ -45,7 +45,9 @@
       <dependency><groupId>jakarta.enterprise</groupId><artifactId>jakarta.enterprise.cdi-el-api</artifactId><version>4.1.0</version></dependency>
       <dependency><groupId>jakarta.enterprise</groupId><artifactId>jakarta.enterprise.lang-model</artifactId><version>4.1.0</version></dependency>
       <dependency><groupId>jakarta.inject</groupId><artifactId>jakarta.inject-api</artifactId><version>2.0.1</version></dependency>
-      <dependency><groupId>jakarta.annotation</groupId><artifactId>jakarta.annotation-api</artifactId><version>2.1.1</version></dependency>
+      <dependency><groupId>jakarta.annotation</groupId><artifactId>jakarta.annotation-api</artifactId><version>3.0.0</version></dependency>
+      <dependency><groupId>jakarta.el</groupId><artifactId>jakarta.el-api</artifactId><version>6.0.1</version></dependency>
+      <dependency><groupId>jakarta.interceptor</groupId><artifactId>jakarta.interceptor-api</artifactId><version>2.2.0</version></dependency>
       <dependency>
         <groupId>com.fasterxml.jackson</groupId>
         <artifactId>jackson-bom</artifactId>

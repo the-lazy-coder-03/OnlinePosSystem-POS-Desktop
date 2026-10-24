@@ -36,7 +36,8 @@ No cloud runtime upgrade is authorized by choosing this local baseline.
 ## Stage 2 pins
 
 Weld SE 6.0.4.Final supplies Jakarta CDI 4.1-compatible APIs; the root dependency management pins the
-resolved API versions. Installation adapters use Bouncy Castle 1.83, JNA platform 5.18.1 and JmDNS 3.6.3.
+resolved API versions: CDI/lang-model 4.1.0, Inject 2.0.1, Annotation 3.0.0, EL 6.0.1 and Interceptor 2.2.0,
+matching the CDI 4.1 API generation, with the existing Boot-managed EL 6.0.1 maintenance version. Installation adapters use Bouncy Castle 1.83, JNA platform 5.18.1 and JmDNS 3.6.3.
 Windows payloads (Inno Setup 6.7.3, WinSW 2.12.0, PostgreSQL 16.15 and VC runtime) have immutable source
 URLs and verified SHA-256 hashes in windows-installer/dependencies.json. Each generated package records
 its exact JDK release and payload hashes. Maven Central supplies the POM-pinned Java dependencies;

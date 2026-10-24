@@ -99,6 +99,8 @@ public final class SetupTool {
             var serverKey = Certificates.keyPair();
             String host = java.net.InetAddress.getLocalHost().getHostName();
             List<String> hosts = new java.util.ArrayList<>(List.of(host, "localhost", "127.0.0.1"));
+            hosts.add(java.net.InetAddress.getLocalHost().getCanonicalHostName());
+            if (!host.endsWith(".local")) hosts.add(host + ".local");
             var interfaces = java.net.NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements())
               for (var address :
