@@ -13,7 +13,10 @@ Install-Role 'slave'
 if(Test-Path (Join-Path $program 'server\store-server.jar')){throw 'Slave installed backend components'}
 if(Get-Service OnlinePOSPostgres -ErrorAction SilentlyContinue){throw 'Slave installed PostgreSQL service'}
 $smoke=Start-Process (Join-Path $program 'desktop\OnlinePOS.exe') -ArgumentList '--smoke-test' -PassThru -RedirectStandardOutput (Join-Path $out 'packaged-fx.log') -RedirectStandardError (Join-Path $out 'packaged-fx-error.log')
+# Keep the process handle open: Windows PowerShell otherwise loses ExitCode for detached starts.
+$smokeHandle=$smoke.Handle
 if(-not $smoke.WaitForExit(60000)){Stop-Process -Id $smoke.Id -Force;throw 'Packaged JavaFX did not exit within 60 seconds'}
+$smoke.Refresh()
 if($smoke.ExitCode -ne 0 -or (Get-Content (Join-Path $out 'packaged-fx.log') -Raw) -notmatch 'DESKTOP_SMOKE_OK'){throw 'Packaged JavaFX launch failed'}
 if((Get-Content (Join-Path $out 'packaged-fx.log') -Raw) -notmatch 'DESKTOP_CDI_CLOSED'){throw 'Packaged CDI shutdown failed'}
 Write-Output 'PACKAGED_JAVAFX_CDI_OK'
