@@ -58,6 +58,25 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-war-plugin</artifactId>
+        <version>3.4.0</version>
+        <executions>
+          <execution>
+            <id>glassfish-war</id>
+            <phase>package</phase>
+            <goals>
+              <goal>war</goal>
+            </goals>
+            <configuration>
+              <classifier>glassfish</classifier>
+              <failOnMissingWebXml>false</failOnMissingWebXml>
+              <packagingExcludes>WEB-INF/lib/spring-boot-starter-tomcat-*.jar,WEB-INF/lib/tomcat-embed-*.jar</packagingExcludes>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>
