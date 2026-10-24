@@ -28,6 +28,15 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
+      - name: Parse Windows setup scripts
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          foreach ($script in Get-ChildItem windows-installer/scripts/*.ps1) {
+            $tokens=$null; $parseErrors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile($script.FullName,[ref]$tokens,[ref]$parseErrors) | Out-Null
+            if ($parseErrors) { throw ($parseErrors | Out-String) }
+          }
       - name: Build, format, analyse and test (Linux)
         if: runner.os == 'Linux'
         run: ./mvnw -B -ntp clean install

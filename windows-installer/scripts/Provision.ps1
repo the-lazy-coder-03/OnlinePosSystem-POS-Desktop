@@ -30,6 +30,31 @@ function Protect-Directory([string]$Path) {
   }
   Set-Acl -LiteralPath $Path -AclObject $security
 }
+# Refuse pre-planted security material instead of adopting untrusted files during elevation.
+$trustedOwners=@('S-1-5-18','S-1-5-32-544',[Security.Principal.WindowsIdentity]::GetCurrent().User.Value)
+foreach($serviceName in @('OnlinePOSStore','OnlinePOSPostgres')){
+  # Service SIDs are deterministic; retained ACLs must remain valid after uninstall/reinstall.
+  $sidOutput=(& sc.exe showsid $serviceName) -join ' '
+  $sidMatch=[regex]::Match($sidOutput,'S-1-5-80-(?:[0-9]+-){4}[0-9]+')
+  if($LASTEXITCODE -ne 0 -or -not $sidMatch.Success){throw 'Cannot establish the app-owned service identities'}
+  $trustedOwners+=$sidMatch.Value
+}
+function Assert-ProtectedMaterial([string]$Path) {
+  if(-not(Test-Path -LiteralPath $Path)){return}
+  if((Get-Item -LiteralPath $Path).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Protected configuration links are prohibited'}
+  $acl=Get-Acl -LiteralPath $Path
+  if($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -notin $trustedOwners){throw 'Untrusted configuration owner; administrator repair required'}
+  $writeMask=[Security.AccessControl.FileSystemRights]::Write -bor [Security.AccessControl.FileSystemRights]::Delete -bor [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [Security.AccessControl.FileSystemRights]::ChangePermissions -bor [Security.AccessControl.FileSystemRights]::TakeOwnership
+  foreach($rule in $acl.Access){
+    if($rule.AccessControlType -eq 'Allow' -and ($rule.FileSystemRights -band $writeMask) -and $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin $trustedOwners){throw 'Configuration permits untrusted writes; administrator repair required'}
+  }
+}
+foreach($name in @('administrator.json','installation.json','network.json','secrets','pairing','runtime','postgres-data')){
+  Assert-ProtectedMaterial (Join-Path $data $name)
+}
+if(Test-Path (Join-Path $data 'secrets')){
+  foreach($secret in Get-ChildItem (Join-Path $data 'secrets') -Force){Assert-ProtectedMaterial $secret.FullName}
+}
 Protect-Directory $data
 $provisionLock=[IO.File]::Open((Join-Path $data 'provision.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
 try {
@@ -119,7 +144,7 @@ if ($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER') {
       if ($LASTEXITCODE -ne 0) { throw 'Database service registration failed' }
       & sc.exe sidtype OnlinePOSPostgres unrestricted | Out-Null
     }
-    $pgAccount=Invoke-CimMethod -InputObject (Get-CimInstance Win32_Service -Filter "Name='OnlinePOSPostgres'") -MethodName Change -Arguments @{StartName='NT SERVICE\OnlinePOSPostgres';StartPassword=''}
+    $pgAccount=Invoke-CimMethod -InputObject (Get-CimInstance Win32_Service -Filter "Name='OnlinePOSPostgres'") -MethodName Change -Arguments @{StartName='NT SERVICE\OnlinePOSPostgres'}
     if($pgAccount.ReturnValue -ne 0){throw 'Cannot assign the dedicated PostgreSQL virtual account'}
     & icacls.exe $pgdata /grant 'NT SERVICE\OnlinePOSPostgres:(OI)(CI)F' | Out-Null
     if($LASTEXITCODE -ne 0){throw 'Cannot grant PostgreSQL service access'}
@@ -158,7 +183,7 @@ GRANT CONNECT ON DATABASE pos_store TO pos_runtime;
     & $service install
     if ($LASTEXITCODE -ne 0) { throw 'Backend service registration failed' }
   }
-  $accountChange=Invoke-CimMethod -InputObject (Get-CimInstance Win32_Service -Filter "Name='OnlinePOSStore'") -MethodName Change -Arguments @{StartName='NT SERVICE\OnlinePOSStore';StartPassword=''}
+  $accountChange=Invoke-CimMethod -InputObject (Get-CimInstance Win32_Service -Filter "Name='OnlinePOSStore'") -MethodName Change -Arguments @{StartName='NT SERVICE\OnlinePOSStore'}
   if($accountChange.ReturnValue -ne 0){throw 'Cannot assign the least-privilege backend service account'}
   & sc.exe sidtype OnlinePOSStore unrestricted | Out-Null
   & icacls.exe $data /remove 'NT SERVICE\OnlinePOSStore' | Out-Null
