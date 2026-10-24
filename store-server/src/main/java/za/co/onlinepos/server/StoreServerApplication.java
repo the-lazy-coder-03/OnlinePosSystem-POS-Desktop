@@ -6,7 +6,14 @@ import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServic
 
 @SpringBootApplication(exclude = UserDetailsServiceAutoConfiguration.class)
 public class StoreServerApplication {
-  public static void main(String[] args) {
-    SpringApplication.run(StoreServerApplication.class, args);
+  public static void main(String[] args) throws Exception {
+    boolean installed =
+        java.util.Arrays.asList(args).contains("--spring.profiles.active=installed");
+    SpringApplication application = new SpringApplication(StoreServerApplication.class);
+    if (installed) {
+      // System properties override development defaults without exposing secrets as CLI arguments.
+      InstalledTls.properties().forEach((key, value) -> System.setProperty(key, value.toString()));
+    }
+    application.run(args);
   }
 }

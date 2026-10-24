@@ -5,3 +5,10 @@ useDefault = true
 [[allowlists]]
 description = "Generated build output and Git internals; source and history remain scanned"
 paths = ['''(^|/)target/''', '''(^|/)\.git/''']
+
+[[allowlists]]
+description = "Typed Java method parameters; X509Certificate is a type, not an embedded key"
+condition = "AND"
+paths = ['''^pos-installation/src/main/java/za/co/onlinepos/installation/Certificates\.java$''']
+regexTarget = "match"
+regexes = ['''PrivateKey identityKey, X509Certificate''']

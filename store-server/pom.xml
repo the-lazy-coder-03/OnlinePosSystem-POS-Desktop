@@ -8,6 +8,7 @@
   </parent>
   <artifactId>store-server</artifactId>
   <dependencies>
+    <dependency><groupId>za.co.onlinepos</groupId><artifactId>pos-installation</artifactId><version>${project.version}</version></dependency>
     <dependency>
       <groupId>za.co.onlinepos</groupId>
       <artifactId>pos-domain</artifactId>

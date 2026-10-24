@@ -1,4 +1,4 @@
-name: POS foundation
+name: POS build and Windows setup
 
 on:
   push:
@@ -41,6 +41,26 @@ jobs:
           .\mvnw.cmd -B -ntp -pl pos-desktop javafx:run '-Ddesktop.args=--smoke-test' | Tee-Object -Variable smokeOutput
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (($smokeOutput -join "`n") -notmatch 'DESKTOP_SMOKE_OK') { throw 'JavaFX smoke marker absent' }
+      - name: Build unsigned Windows installer
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\windows-installer\scripts\Build-Package.ps1 -Channel Development
+      - name: Test packaged application and provisioning
+        if: runner.os == 'Windows'
+        timeout-minutes: 15
+        shell: powershell
+        run: .\windows-installer\scripts\Test-Package.ps1
+      - name: Publish private Windows test installer
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-development-installer
+          path: |
+            windows-installer/target/*.exe
+            windows-installer/target/SHA256SUMS.txt
+            windows-installer/target/packaged-fx*.log
+            windows-installer/target/stage/release-manifest.json
+          if-no-files-found: warn
       - name: Publish test evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

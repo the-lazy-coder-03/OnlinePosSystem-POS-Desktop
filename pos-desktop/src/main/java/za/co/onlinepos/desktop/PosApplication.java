@@ -7,14 +7,30 @@ import javafx.scene.Scene;
 import javafx.stage.Stage;
 
 public final class PosApplication extends Application {
+  private DesktopContainer container;
+
+  @Override
+  public void init() {
+    container = new DesktopContainer();
+  }
+
+  @Override
+  public void stop() {
+    if (container != null) {
+      container.close();
+      container = null;
+    }
+    System.out.println("DESKTOP_CDI_CLOSED");
+  }
+
   @Override
   public void start(Stage stage) {
-    SetupWizard wizard = new SetupWizard();
+    SetupWizard wizard = container.view();
     Scene scene = new Scene(wizard, 720, 740);
     scene
         .getStylesheets()
         .add(Objects.requireNonNull(getClass().getResource("setup.css")).toExternalForm());
-    stage.setTitle("OnlinePOS · Terminal setup preview");
+    stage.setTitle("OnlinePOS · Terminal setup");
     stage.setMinWidth(620);
     stage.setMinHeight(700);
     stage.setScene(scene);
@@ -28,6 +44,7 @@ public final class PosApplication extends Application {
               Platform.exit();
             } catch (RuntimeException exception) {
               exception.printStackTrace(System.err);
+              stop();
               System.exit(1);
             }
           });

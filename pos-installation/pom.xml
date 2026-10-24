@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+<parent><groupId>za.co.onlinepos</groupId><artifactId>pos-parent</artifactId><version>0.1.0-SNAPSHOT</version></parent>
+<artifactId>pos-installation</artifactId><dependencies>
+<dependency><groupId>za.co.onlinepos</groupId><artifactId>pos-contracts</artifactId><version>${project.version}</version></dependency>
+<dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
+<dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>${bouncycastle.version}</version></dependency>
+<dependency><groupId>net.java.dev.jna</groupId><artifactId>jna-platform</artifactId><version>${jna.version}</version></dependency>
+<dependency><groupId>org.jmdns</groupId><artifactId>jmdns</artifactId><version>${jmdns.version}</version></dependency>
+</dependencies></project>
