@@ -1,15 +1,19 @@
 param([Parameter(Mandatory=$true)][string]$RequestPath)
 $ErrorActionPreference = 'Stop'
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Windows administrator elevation required' }
-$program = Join-Path $env:ProgramFiles 'OnlinePOS'
-$data = Join-Path $env:ProgramData 'OnlinePOS'
+$program = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'OnlinePOS'
+$data = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'OnlinePOS'
 $requestRoot = Join-Path $env:LOCALAPPDATA 'OnlinePOS\requests'
 $resolved = [IO.Path]::GetFullPath($RequestPath)
 $requestOwner=(Get-Acl $resolved).Owner
 if (-not $resolved.StartsWith(([IO.Path]::GetFullPath($requestRoot) + '\'),[StringComparison]::OrdinalIgnoreCase) -or [IO.Path]::GetExtension($resolved) -ne '.dpapi') { throw 'Request outside protected setup directory' }
 if ((Get-Item $resolved).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Request links are prohibited' }
-$java = Join-Path $program 'desktop\runtime\bin\java.exe'
+# Reject existing data-root links before changing ACLs or invoking an elevated process.
+$walk=[IO.DirectoryInfo]$data
+while($walk){if($walk.Exists -and ($walk.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Installation directory links are prohibited'};$walk=$walk.Parent}
+$java = Join-Path $program 'desktop\runtime\bin\java.exe' 
 $classPath = Join-Path $program 'desktop\app\*'
+$env:POS_DATA_ROOT=$data
 function Invoke-Tool([string[]]$Arguments) {
   & $java -cp $classPath za.co.onlinepos.installation.SetupTool @Arguments
   if ($LASTEXITCODE -ne 0) { throw 'Protected setup operation failed' }
@@ -20,6 +24,8 @@ function Protect-Directory([string]$Path) {
   if ($LASTEXITCODE -ne 0) { throw 'Cannot secure installation directory' }
 }
 Protect-Directory $data
+$provisionLock=[IO.File]::Open((Join-Path $data 'provision.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+try {
 # SetupTool authenticates the local installation administrator before modifying role/state.
 Invoke-Tool -Arguments @('prepare',$resolved)
 $identity = Get-Content (Join-Path $data 'installation.json') -Raw | ConvertFrom-Json
@@ -122,3 +128,5 @@ if(Test-Path (Join-Path $data 'secrets')) {
 Add-Content $journal ('Completed role '+$role+'; sales unavailable at '+[DateTime]::UtcNow.ToString('o'))
 Write-Output 'SETUP_COMPLETE_SALES_UNAVAILABLE'
 
+
+} finally { $provisionLock.Dispose() }

@@ -5,8 +5,17 @@ import za.co.onlinepos.contracts.Branch;
 import za.co.onlinepos.contracts.InstallationRole;
 
 public record SetupRequest(
-    int branchId, InstallationRole role, String terminalName, String invitation) {
+    int branchId,
+    InstallationRole role,
+    String terminalName,
+    String invitation,
+    String masterAddress) {
+  public SetupRequest(int branchId, InstallationRole role, String terminalName, String invitation) {
+    this(branchId, role, terminalName, invitation, "");
+  }
+
   public SetupRequest {
+    masterAddress = masterAddress == null ? "" : masterAddress.strip();
     Branch.fromId(branchId);
     Objects.requireNonNull(role);
     if (terminalName == null

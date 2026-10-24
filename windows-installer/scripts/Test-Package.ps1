@@ -2,8 +2,8 @@ $ErrorActionPreference='Stop'
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $out=Join-Path $root 'windows-installer\target'
 $installer=Join-Path $out 'OnlinePOS-0.2.0-Development.exe'
-$program=Join-Path $env:ProgramFiles 'OnlinePOS'
-$data=Join-Path $env:ProgramData 'OnlinePOS'
+$program=Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'OnlinePOS'
+$data=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'OnlinePOS'
 function Install-Role([string]$Role) {
  $p=Start-Process $installer -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/TYPE=$Role")
  if($p.ExitCode -ne 0){throw "Installer failed for $Role"}

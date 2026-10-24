@@ -167,6 +167,19 @@ public final class SetupTool {
             }
           if (failure != null) throw failure;
         }
+        var trust =
+            JsonFiles.JSON.readValue(secrets.get("pairing-trust"), Pairing.Invitation.class);
+        Exception readinessFailure = null;
+        for (int attempt = 0; attempt < 15; attempt++)
+          try {
+            new TrustedStoreClient().identity(trust, secrets);
+            readinessFailure = null;
+            break;
+          } catch (java.net.ConnectException exception) {
+            readinessFailure = exception;
+            Thread.sleep(1000);
+          }
+        if (readinessFailure != null) throw readinessFailure;
       } else if (args[0].equals("complete")) {
         Installation identity = repository.load().orElseThrow();
         repository.save(

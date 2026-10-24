@@ -83,6 +83,36 @@ final class SetupWizard extends BorderPane {
     notice.getStyleClass().add("notice");
     BorderPane.setMargin(notice, new Insets(22, 0, 0, 0));
     setBottom(notice);
+    presenter
+        .currentInstallation()
+        .whenComplete(
+            (state, error) ->
+                javafx.application.Platform.runLater(
+                    () -> {
+                      if (error != null) {
+                        notice.setText(
+                            "Installation state could not be read. Use protected repair diagnostics.");
+                        return;
+                      }
+                      state.ifPresent(
+                          saved -> {
+                            branch.setValue(Branch.fromId(saved.branchId()));
+                            terminalName.setText(saved.terminalName());
+                            master.setSelected(saved.role() == InstallationRole.MASTER);
+                            slave.setSelected(saved.role() == InstallationRole.SLAVE);
+                            branch.setDisable(true);
+                            master.setDisable(true);
+                            slave.setDisable(true);
+                            notice.setText(
+                                "Installation: "
+                                    + saved.role()
+                                    + " · "
+                                    + saved.state()
+                                    + " · Sales unavailable. Role changes require protected administration.");
+                            if (saved.role() == InstallationRole.BACKUP_MASTER)
+                              review.setDisable(true);
+                          });
+                    }));
   }
 
   private Label fieldLabel(String text, javafx.scene.Node control) {
@@ -113,6 +143,11 @@ final class SetupWizard extends BorderPane {
       administrator.setPromptText("Installation administrator password (12+ characters)");
       javafx.scene.control.TextArea invitation = new javafx.scene.control.TextArea();
       invitation.setPromptText("Slave: paste the pairing invitation JSON from your Master");
+      javafx.scene.control.TextField masterAddress = new javafx.scene.control.TextField();
+      masterAddress.setPromptText(
+          "Optional manual HTTPS Master address (same trusted certificate required)");
+      masterAddress.setVisible(selection.role() == InstallationRole.SLAVE);
+      masterAddress.setManaged(masterAddress.isVisible());
       invitation.setPrefRowCount(3);
       invitation.setVisible(selection.role() == InstallationRole.SLAVE);
       invitation.setManaged(invitation.isVisible());
@@ -156,7 +191,8 @@ final class SetupWizard extends BorderPane {
                         selection.branch().id(),
                         selection.role(),
                         selection.terminalName(),
-                        invitation.getText()),
+                        invitation.getText(),
+                        masterAddress.getText()),
                     password)
                 .whenComplete(
                     (result, error) ->
@@ -186,6 +222,7 @@ final class SetupWizard extends BorderPane {
               explanation,
               administrator,
               invitation,
+              masterAddress,
               discover,
               install,
               progress,

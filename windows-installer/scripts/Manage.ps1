@@ -2,7 +2,7 @@ param([Parameter(Mandatory=$true)][ValidateSet('Invite','Revoke','Backup')][stri
  [string]$Endpoint,[string]$OutputPath,[string]$TerminalId)
 $ErrorActionPreference='Stop'
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {throw 'Run installation management in an elevated PowerShell window'}
-$program=Join-Path $env:ProgramFiles 'OnlinePOS'
+$program=Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'OnlinePOS'
 $java=Join-Path $program 'desktop\runtime\bin\java.exe'
 $classPath=Join-Path $program 'desktop\app\*'
 if ($Action -eq 'Invite') {
@@ -16,7 +16,7 @@ if ($Action -eq 'Invite') {
 } elseif ($Action -eq 'Revoke') {
  & $java -cp $classPath za.co.onlinepos.installation.SetupTool revoke $TerminalId
 } else {
- $data=Join-Path $env:ProgramData 'OnlinePOS'
+ $data=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'OnlinePOS'
  $identity=Get-Content (Join-Path $data 'installation.json') -Raw | ConvertFrom-Json
  $secure=Read-Host 'Installation administrator password' -AsSecureString
  $pointer=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)

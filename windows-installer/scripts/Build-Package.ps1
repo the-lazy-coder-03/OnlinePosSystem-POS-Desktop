@@ -17,7 +17,7 @@ try {
  Copy-Item 'pos-desktop\target\pos-desktop-0.1.0-SNAPSHOT.jar' $desktopInput
  $runtime=Join-Path $out 'runtime'
  if(Test-Path $runtime){Remove-Item $runtime -Recurse -Force}
- & (Join-Path $env:JAVA_HOME 'bin\jlink.exe') --add-modules ALL-MODULE-PATH --strip-debug --no-header-files --no-man-pages --output $runtime
+ & (Join-Path $env:JAVA_HOME 'bin\jlink.exe') --module-path (Join-Path $env:JAVA_HOME 'jmods') --add-modules ALL-MODULE-PATH --strip-debug --no-header-files --no-man-pages --output $runtime
  if($LASTEXITCODE -ne 0){throw 'Runtime generation failed'}
  & (Join-Path $env:JAVA_HOME 'bin\jpackage.exe') --type app-image --name OnlinePOS --input $desktopInput --main-jar pos-desktop-0.1.0-SNAPSHOT.jar --main-class za.co.onlinepos.desktop.Launcher --runtime-image $runtime --dest $stage --java-options '--enable-native-access=ALL-UNNAMED' --win-console --app-version 0.2.0
  if($LASTEXITCODE -ne 0){throw 'JavaFX image generation failed'}
