@@ -4,6 +4,23 @@ $out=Join-Path $root 'windows-installer\target'
 $installer=Join-Path $out 'OnlinePOS-0.3.0-Development.exe'
 $program=Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'OnlinePOS'
 $data=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'OnlinePOS'
+function Invoke-SecretProcess([string]$Executable,[string]$Arguments,[string[]]$InputLines) {
+ $start=New-Object Diagnostics.ProcessStartInfo
+ $start.FileName=$Executable;$start.Arguments=$Arguments
+ $start.UseShellExecute=$false;$start.CreateNoWindow=$true
+ $start.RedirectStandardInput=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+ $child=New-Object Diagnostics.Process;$child.StartInfo=$start
+ try {
+  [void]$child.Start()
+  $output=$child.StandardOutput.ReadToEndAsync();$errors=$child.StandardError.ReadToEndAsync()
+  $encoded=[Text.Encoding]::UTF8.GetBytes(($InputLines -join "`n")+"`n")
+  try {$child.StandardInput.BaseStream.Write($encoded,0,$encoded.Length)}finally{[Array]::Clear($encoded,0,$encoded.Length)}
+  $child.StandardInput.Close()
+  if(-not $child.WaitForExit(120000)){$child.Kill();throw 'Protected CI process timed out'}
+  Write-Output $output.Result;Write-Host $errors.Result
+  if($child.ExitCode -ne 0){throw 'Protected CI process failed'}
+ } finally {$child.Dispose()}
+}
 function Install-Role([string]$Role) {
  Write-Output ('TEST_INSTALL_'+$Role)
  $p=Start-Process $installer -Wait -PassThru -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/TYPE=$Role")
@@ -105,15 +122,17 @@ try{
  # Bootstrap staff through the protected owner console, then call the real installed TLS API.
  $staffPassword=([guid]::NewGuid()).ToString()
  try {
-  @($password,$staffPassword) | & (Join-Path $program 'setup\Local-Database.ps1') -Operation BootstrapStaff -Username 'ci.manager'
+  $powershell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  $databaseScript=Join-Path $program 'setup\Local-Database.ps1'
+  Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation BootstrapStaff -Username ci.manager -PasswordStdin') -InputLines @($password,$staffPassword)
   if($LASTEXITCODE -ne 0){throw 'Protected staff bootstrap failed'}
   $classes=Join-Path $out 'stage3-test-client';New-Item $classes -ItemType Directory -Force|Out-Null
   $clientPath=Join-Path $program 'desktop\app\*'
   & (Join-Path $env:JAVA_HOME 'bin\javac.exe') -cp $clientPath -d $classes (Join-Path $root 'tools\WindowsStaffSmoke.java')
   if($LASTEXITCODE -ne 0){throw 'Cannot compile the isolated test client'}
-  $staffPassword | & (Join-Path $program 'desktop\runtime\bin\java.exe') -cp ($classes+';'+$clientPath) WindowsStaffSmoke
+  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke') -InputLines @($staffPassword)
   if($LASTEXITCODE -ne 0){throw 'Installed staff TLS API failed'}
-  $password | & (Join-Path $program 'setup\Local-Database.ps1') -Operation Backup
+  Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation Backup -PasswordStdin') -InputLines @($password)
   if($LASTEXITCODE -ne 0 -or -not(Get-ChildItem (Join-Path $data 'backups') -Filter '*.dpapi')){throw 'Protected encrypted backup failed'}
   if(Get-ChildItem (Join-Path $data 'backups') -Filter '*.dump'){throw 'Successful backup retained plaintext'}
  }finally{$staffPassword=$null}

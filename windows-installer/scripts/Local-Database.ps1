@@ -1,6 +1,6 @@
-param([Parameter(Mandatory=$true)][ValidateSet('BootstrapStaff','Backup')][string]$Operation,[string]$Username,[string]$Destination)
+param([Parameter(Mandatory=$true)][ValidateSet('BootstrapStaff','Backup')][string]$Operation,[string]$Username,[string]$Destination,[switch]$PasswordStdin)
 $ErrorActionPreference='Stop'
-$credentialInput=@($input)
+$credentialInput=@()
 function Invoke-DatabaseTool([string[]]$ToolArguments) {
  if($credentialInput.Count -gt 0){
   $start=New-Object Diagnostics.ProcessStartInfo
@@ -33,6 +33,12 @@ if(-not(Test-Path (Join-Path $data 'installation.json'))){throw 'A configured in
 $env:POS_DATA_ROOT=$data
 $java=Join-Path $program 'desktop\runtime\bin\java.exe'
 $jar=Join-Path $program 'server\store-server.jar'
+if($PasswordStdin){
+ $reader=New-Object IO.StreamReader([Console]::OpenStandardInput(),[Text.Encoding]::UTF8)
+ $credentialInput+= $reader.ReadLine()
+ if($Operation -eq 'BootstrapStaff'){$credentialInput+= $reader.ReadLine()}
+ if($credentialInput|Where-Object {$null -eq $_}){throw 'Credential input is incomplete'}
+}
 if($Operation -eq 'BootstrapStaff') {
  if($Username -notmatch '^[a-z0-9._-]{3,64}$'){throw 'Supply a staff username'}
  Invoke-DatabaseTool -ToolArguments @('--database-tool=bootstrap-staff',"--username=$Username")
