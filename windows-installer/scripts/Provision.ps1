@@ -49,11 +49,13 @@ function Assert-ProtectedMaterial([string]$Path) {
     if($rule.AccessControlType -eq 'Allow' -and ($rule.FileSystemRights -band $writeMask) -and $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin $trustedOwners){throw 'Configuration permits untrusted writes; administrator repair required'}
   }
 }
-foreach($name in @('administrator.json','installation.json','network.json','secrets','pairing','runtime','postgres-data')){
+foreach($name in @('administrator.json','installation.json','network.json','secrets','pairing','runtime','postgres-data','downloads')){
   Assert-ProtectedMaterial (Join-Path $data $name)
 }
-if(Test-Path (Join-Path $data 'secrets')){
-  foreach($secret in Get-ChildItem (Join-Path $data 'secrets') -Force){Assert-ProtectedMaterial $secret.FullName}
+foreach($protectedFiles in @('secrets','downloads')){
+  if(Test-Path (Join-Path $data $protectedFiles)){
+    foreach($entry in Get-ChildItem (Join-Path $data $protectedFiles) -Force){Assert-ProtectedMaterial $entry.FullName}
+  }
 }
 Protect-Directory $data
 $provisionLock=[IO.File]::Open((Join-Path $data 'provision.lock'),[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
@@ -74,14 +76,16 @@ $journal = Join-Path $data 'provisioning.log'
 Add-Content $journal ('Prepared role '+$role+' at '+[DateTime]::UtcNow.ToString('o'))
 if ($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER') {
   if (-not (Test-Path (Join-Path $program 'server\store-server.jar'))) { throw 'Re-run the installer with Master components before this role change' }
-  $vc = & (Join-Path $PSScriptRoot 'Dependencies.ps1') -Name vcredist
+  $machineCache=Join-Path $data 'downloads'
+  Protect-Directory $machineCache
+  $vc = & (Join-Path $PSScriptRoot 'Dependencies.ps1') -Name vcredist -Cache $machineCache
   $vcProcess=Start-Process $vc -PassThru -ArgumentList @('/install','/quiet','/norestart')
   $vcHandle=$vcProcess.Handle
   if(-not $vcProcess.WaitForExit(180000)){throw 'Microsoft runtime setup has not completed; allow it to finish before retrying'}
   $vcProcess.Refresh()
   if($vcProcess.ExitCode -notin @(0,1638,3010)){throw 'Verified Microsoft runtime installation failed'}
   Write-Output 'MICROSOFT_RUNTIME_READY'
-  $archive = & (Join-Path $PSScriptRoot 'Dependencies.ps1') -Name postgres
+  $archive = & (Join-Path $PSScriptRoot 'Dependencies.ps1') -Name postgres -Cache $machineCache
   Write-Output 'POSTGRES_PAYLOAD_VERIFIED'
   $postgresRoot=Join-Path $program 'postgres'
   $payloadMarker=Join-Path $postgresRoot '.runtime.sha256'

@@ -90,6 +90,11 @@ try{
   $tables=& $pg -X -h 127.0.0.1 -p 55432 -U pos_bootstrap -d pos_store -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'"
   if($LASTEXITCODE -ne 0 -or $tables -ne '0'){throw 'Stage 2 created business tables'}
  }finally{Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue}
+ $cachePath=Join-Path $data 'downloads'
+ if(-not(Test-Path $cachePath)){throw 'Elevated setup did not use the protected machine cache'}
+ foreach($rule in (Get-Acl $cachePath).Access){
+  if($rule.AccessControlType -eq 'Allow' -and ($rule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Write) -and $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin @('S-1-5-18','S-1-5-32-544')){throw 'Payload cache permits untrusted writes'}
+ }
  Write-Output 'WINDOWS_MASTER_INSTALL_REPAIR_GRANTS_FIREWALL_OK'
  $masterUninstall=Start-Process (Join-Path $program 'unins000.exe') -Wait -PassThru -ArgumentList '/VERYSILENT'
  if($masterUninstall.ExitCode -ne 0){throw 'Configured Master uninstall failed'}
