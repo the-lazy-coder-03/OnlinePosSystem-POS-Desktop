@@ -47,6 +47,7 @@ public final class SetupTool {
           if (Files.exists(root.resolve("administrator.json"))) administrator.verify(password);
           else administrator.initialize(password);
           SetupRequest request = envelope.request();
+          NetworkSettings.load(root);
           var previous = repository.load();
           Installation identity =
               previous.orElseGet(
@@ -62,7 +63,9 @@ public final class SetupTool {
                           "CONFIGURING"));
           if (previous.isPresent()
               && (identity.branchId() != request.branchId() || identity.role() != request.role())) {
-            if (identity.role() == InstallationRole.MASTER
+            if ((identity.role() == InstallationRole.BACKUP_MASTER
+                    && request.role() == InstallationRole.MASTER)
+                || identity.role() == InstallationRole.MASTER
                 || Files.exists(root.resolve("postgres-data"))
                 || Files.exists(root.resolve("pending-orders")))
               throw new SecurityException(
@@ -169,7 +172,13 @@ public final class SetupTool {
         Installation identity = repository.load().orElseThrow();
         if (identity.role() != InstallationRole.MASTER)
           throw new SecurityException("Master required");
-        if (!Files.exists(root.resolve("secrets/terminal-p12.dpapi"))) {
+        boolean needsPairing = !Files.exists(root.resolve("secrets/terminal-p12.dpapi"));
+        if (!needsPairing) {
+          var priorTrust =
+              JsonFiles.JSON.readValue(secrets.get("pairing-trust"), Pairing.Invitation.class);
+          needsPairing = !priorTrust.clusterId().equals(identity.clusterId());
+        }
+        if (needsPairing) {
           var registry = new TerminalRegistry(root, Clock.systemUTC(), identity, secrets);
           var invitation =
               registry.invite("https://localhost:" + NetworkSettings.load(root).httpsPort());

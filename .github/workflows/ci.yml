@@ -41,6 +41,7 @@ jobs:
           .\mvnw.cmd -B -ntp -pl pos-desktop javafx:run '-Ddesktop.args=--smoke-test' | Tee-Object -Variable smokeOutput
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if (($smokeOutput -join "`n") -notmatch 'DESKTOP_SMOKE_OK') { throw 'JavaFX smoke marker absent' }
+          if (($smokeOutput -join "`n") -notmatch 'DESKTOP_CDI_CLOSED') { throw 'CDI shutdown marker absent' }
       - name: Build unsigned Windows installer
         if: runner.os == 'Windows'
         shell: powershell

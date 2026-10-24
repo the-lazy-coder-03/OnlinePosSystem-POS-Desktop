@@ -23,11 +23,13 @@ over-the-shoulder elevation under a different administrator must fail safely if 
 Use at least 12 characters for the installation administrator; it is separate from future staff login.
 
 Default HTTPS port is 8443, PostgreSQL 55432. Before provisioning, an administrator may create
-C:\ProgramData\OnlinePOS\network.json with httpsPort/postgresPort (distinct integers 1024–65535).
+C:\ProgramData\OnlinePOS\network.json with httpsPort/postgresPort (distinct integers 1024–65535) and optional storeSubnet,
+for example {"httpsPort":8443,"postgresPort":55432,"storeSubnet":"192.168.1.0/24"}.
+The subnet must be an RFC1918 IPv4 CIDR; public or overly broad ranges are rejected.
 Changing a PostgreSQL port after initialization requires a separately planned maintenance change;
 do not edit only one side of an existing deployment.
-Firewall access is limited to the Private profile and LocalSubnet. Tighten the rule to the actual store
-subnet during client VM/LAN validation; do not open it on Public profiles or expose PostgreSQL.
+Firewall access is limited to the Private profile and LocalSubnet. Set storeSubnet to the selected store
+network during setup; do not open it on Public profiles or expose PostgreSQL.
 
 PostgreSQL is a dedicated cluster, loopback-only, with SCRAM, bootstrap/owner/runtime identities,
 a pos_store database and no business tables. Backend and database services use LocalService with

@@ -30,11 +30,12 @@ try {
 Invoke-Tool -Arguments @('prepare',$resolved)
 $identity = Get-Content (Join-Path $data 'installation.json') -Raw | ConvertFrom-Json
 $role = $identity.role
-$httpsPort=8443;$postgresPort=55432
+$httpsPort=8443;$postgresPort=55432;$storeSubnet='LocalSubnet'
 $networkPath=Join-Path $data 'network.json'
 if(Test-Path $networkPath){
  $network=Get-Content $networkPath -Raw|ConvertFrom-Json
  $httpsPort=[int]$network.httpsPort;$postgresPort=[int]$network.postgresPort
+ if($network.storeSubnet){$storeSubnet=$network.storeSubnet}
  if($httpsPort -lt 1024 -or $httpsPort -gt 65535 -or $postgresPort -lt 1024 -or $postgresPort -gt 65535 -or $httpsPort -eq $postgresPort){throw 'Invalid network ports'}
 }
 $journal = Join-Path $data 'provisioning.log'
@@ -124,7 +125,7 @@ GRANT CONNECT ON DATABASE pos_store TO pos_runtime;
   if ($role -eq 'BACKUP_MASTER') { Set-Service OnlinePOSStore -StartupType Disabled }
 }
 Remove-NetFirewallRule -Name OnlinePOS-Discovery -ErrorAction SilentlyContinue
-New-NetFirewallRule -Name OnlinePOS-Discovery -DisplayName 'OnlinePOS LAN discovery' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5353 -RemoteAddress LocalSubnet -Profile Private -Program (Join-Path $program 'desktop\OnlinePOS.exe') | Out-Null
+New-NetFirewallRule -Name OnlinePOS-Discovery -DisplayName 'OnlinePOS LAN discovery' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5353 -RemoteAddress $storeSubnet -Profile Private -Program (Join-Path $program 'desktop\OnlinePOS.exe') | Out-Null
 Invoke-Tool -Arguments @('complete')
 & icacls.exe (Join-Path $data 'installation.json') /grant '*S-1-5-32-545:R' | Out-Null
 if ($role -eq 'MASTER') {
@@ -132,9 +133,9 @@ if ($role -eq 'MASTER') {
     if ((Get-Service OnlinePOSStore).Status -ne 'Running') { throw 'HTTPS port 8443 is occupied' }
   }
   Remove-NetFirewallRule -Name OnlinePOS-MasterDiscovery -ErrorAction SilentlyContinue
-  New-NetFirewallRule -Name OnlinePOS-MasterDiscovery -DisplayName 'OnlinePOS Master discovery' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5353 -RemoteAddress LocalSubnet -Profile Private -Program $java | Out-Null
+  New-NetFirewallRule -Name OnlinePOS-MasterDiscovery -DisplayName 'OnlinePOS Master discovery' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5353 -RemoteAddress $storeSubnet -Profile Private -Program $java | Out-Null
   Remove-NetFirewallRule -Name OnlinePOS-HTTPS -ErrorAction SilentlyContinue
-  New-NetFirewallRule -Name OnlinePOS-HTTPS -DisplayName 'OnlinePOS trusted store HTTPS' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $httpsPort -RemoteAddress LocalSubnet -Profile Private -Program $java | Out-Null
+  New-NetFirewallRule -Name OnlinePOS-HTTPS -DisplayName 'OnlinePOS trusted store HTTPS' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $httpsPort -RemoteAddress $storeSubnet -Profile Private -Program $java | Out-Null
   Set-Service OnlinePOSStore -StartupType Automatic
   Start-Service OnlinePOSStore
   Invoke-Tool -Arguments @('pair-local')
