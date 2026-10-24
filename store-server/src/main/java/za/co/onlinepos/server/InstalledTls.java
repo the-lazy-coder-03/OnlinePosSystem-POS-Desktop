@@ -21,7 +21,9 @@ public final class InstalledTls {
         new String(secrets.get("pki-password"), java.nio.charset.StandardCharsets.US_ASCII);
     Map<String, Object> config = new HashMap<>();
     config.put("server.address", "0.0.0.0");
-    config.put("server.port", "8443");
+    config.put(
+        "server.port",
+        Integer.toString(za.co.onlinepos.installation.NetworkSettings.load(root).httpsPort()));
     config.put("server.ssl.enabled", "true");
     config.put("server.ssl.client-auth", "want");
     config.put("server.ssl.key-store", runtime.resolve("server.p12").toUri().toString());

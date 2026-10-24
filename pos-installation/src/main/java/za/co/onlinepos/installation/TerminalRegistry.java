@@ -29,8 +29,8 @@ public final class TerminalRegistry {
   private final SecretStore secrets;
 
   public TerminalRegistry(Path root, Clock clock, Installation installation, SecretStore secrets) {
-    file = root.resolve("registry.json");
-    lock = root.resolve("registry.lock");
+    file = root.resolve("pairing").resolve("registry.json");
+    lock = root.resolve("pairing").resolve("registry.lock");
     this.clock = clock;
     this.installation = installation;
     this.secrets = secrets;

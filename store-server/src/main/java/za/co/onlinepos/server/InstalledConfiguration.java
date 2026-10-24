@@ -40,7 +40,8 @@ public class InstalledConfiguration {
   MdnsDiscovery masterAdvertisement(Installation identity) throws Exception {
     MdnsDiscovery discovery = new MdnsDiscovery();
     try {
-      discovery.advertise(identity, 8443);
+      discovery.advertise(
+          identity, za.co.onlinepos.installation.NetworkSettings.load(dataRoot()).httpsPort());
     } catch (java.io.IOException exception) {
       discovery
           .close(); // Manual trusted hostname fallback remains available when multicast is blocked.

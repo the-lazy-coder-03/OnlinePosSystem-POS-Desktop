@@ -1,13 +1,13 @@
 # Roadmap and stage gates
 
-Only Stage 1 implementation is authorized by the approval to implement the Stage 0 architecture.
-Stop after its review. Subsequent stages require explicit approval one at a time.
+Stage 2 is explicitly authorized. JavaFX uses Jakarta CDI/Weld SE; the separate backend retains Spring DI.
+Stop after Stage 2 review. Stage 3 and subsequent stages require explicit approval one at a time.
 
 | Stage | Deliverable |
 | --- | --- |
 | 0 | Source audit of cloud master ad708b93; architecture and compatibility map |
 | 1 | Separate Maven repository, JavaFX preview, backend health, identity/money contracts, CI/tests |
-| 2 | Signed Windows installer, role setup, protected pairing, LAN TLS/discovery, service management |
+| 2 | Unsigned development Windows installer, CDI, protected setup/pairing, LAN TLS/discovery; production signing and Windows 10/11 validation gated |
 | 3 | Local PostgreSQL, staff auth, revisions, audit, migrations, transactional outbox/inbox, backup smoke |
 | 4 | Consistent full catalogue/price import from an approved isolated cloud snapshot, parity validation |
 | 5 | Full JavaFX sales, customers, external-card/cash ledger, printing, branch price/availability |

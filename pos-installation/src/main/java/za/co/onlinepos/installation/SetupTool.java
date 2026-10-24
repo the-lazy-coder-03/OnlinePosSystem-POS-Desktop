@@ -154,7 +154,8 @@ public final class SetupTool {
           throw new SecurityException("Master required");
         if (!Files.exists(root.resolve("secrets/terminal-p12.dpapi"))) {
           var registry = new TerminalRegistry(root, Clock.systemUTC(), identity, secrets);
-          var invitation = registry.invite("https://localhost:8443");
+          var invitation =
+              registry.invite("https://localhost:" + NetworkSettings.load(root).httpsPort());
           Exception failure = null;
           for (int attempt = 0; attempt < 15; attempt++)
             try {

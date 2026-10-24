@@ -30,6 +30,13 @@ try {
 Invoke-Tool -Arguments @('prepare',$resolved)
 $identity = Get-Content (Join-Path $data 'installation.json') -Raw | ConvertFrom-Json
 $role = $identity.role
+$httpsPort=8443;$postgresPort=55432
+$networkPath=Join-Path $data 'network.json'
+if(Test-Path $networkPath){
+ $network=Get-Content $networkPath -Raw|ConvertFrom-Json
+ $httpsPort=[int]$network.httpsPort;$postgresPort=[int]$network.postgresPort
+ if($httpsPort -lt 1024 -or $httpsPort -gt 65535 -or $postgresPort -lt 1024 -or $postgresPort -gt 65535 -or $httpsPort -eq $postgresPort){throw 'Invalid network ports'}
+}
 $journal = Join-Path $data 'provisioning.log'
 Add-Content $journal ('Prepared role '+$role+' at '+[DateTime]::UtcNow.ToString('o'))
 if ($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER') {
@@ -45,7 +52,7 @@ if ($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER') {
   $bin = Join-Path $program 'postgres\pgsql\bin'
   $pgdata = Join-Path $data 'postgres-data'
   if ($role -eq 'MASTER') {
-    if (Get-NetTCPConnection -State Listen -LocalPort 55432 -ErrorAction SilentlyContinue) {
+    if (Get-NetTCPConnection -State Listen -LocalPort $postgresPort -ErrorAction SilentlyContinue) {
       if (-not (Get-Service 'OnlinePOSPostgres' -ErrorAction SilentlyContinue)) { throw 'PostgreSQL port 55432 is already occupied' }
     }
     Add-Type -AssemblyName System.Security
@@ -60,7 +67,7 @@ if ($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER') {
         & (Join-Path $bin 'initdb.exe') '-D' $pgdata '--username=pos_bootstrap' '--auth=scram-sha-256' '--encoding=UTF8' '--locale=C' '--data-checksums' "--pwfile=$pw" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'Database initialization failed' }
       } finally { Remove-Item $pw -Force -ErrorAction SilentlyContinue }
-      Add-Content (Join-Path $pgdata 'postgresql.conf') "port=55432`nlisten_addresses='127.0.0.1'`npassword_encryption='scram-sha-256'"
+      Add-Content (Join-Path $pgdata 'postgresql.conf') "port=$postgresPort`nlisten_addresses='127.0.0.1'`npassword_encryption='scram-sha-256'"
       [IO.File]::WriteAllText((Join-Path $pgdata 'pg_hba.conf'),"host all all 127.0.0.1/32 scram-sha-256`r`n",[Text.Encoding]::ASCII)
     }
     if (-not (Get-Service OnlinePOSPostgres -ErrorAction SilentlyContinue)) {
@@ -79,7 +86,7 @@ SELECT 'CREATE DATABASE pos_store OWNER pos_owner' WHERE NOT EXISTS (SELECT FROM
 REVOKE ALL ON DATABASE pos_store FROM PUBLIC;
 GRANT CONNECT ON DATABASE pos_store TO pos_runtime;
 "@
-      $sql | & (Join-Path $bin 'psql.exe') -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p 55432 -U pos_bootstrap -d postgres -q
+      $sql | & (Join-Path $bin 'psql.exe') -X -v ON_ERROR_STOP=1 -h 127.0.0.1 -p $postgresPort -U pos_bootstrap -d postgres -q
       if ($LASTEXITCODE -ne 0) { throw 'Application database role provisioning failed' }
     } finally { Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue; [Array]::Clear($bundle,0,$bundle.Length);$credentials=$null;$sql=$null }
   }
@@ -96,9 +103,22 @@ GRANT CONNECT ON DATABASE pos_store TO pos_runtime;
     & $service install
     if ($LASTEXITCODE -ne 0) { throw 'Backend service registration failed' }
   }
-  & sc.exe config OnlinePOSStore obj= 'NT AUTHORITY\LocalService' password= '' | Out-Null
+  $accountChange=Invoke-CimMethod -InputObject (Get-CimInstance Win32_Service -Filter "Name='OnlinePOSStore'") -MethodName Change -Arguments @{StartName='NT AUTHORITY\LocalService';StartPassword=''}
+  if($accountChange.ReturnValue -ne 0){throw 'Cannot assign the least-privilege backend service account'}
   & sc.exe sidtype OnlinePOSStore unrestricted | Out-Null
-  & icacls.exe $data /grant 'NT SERVICE\OnlinePOSStore:(OI)(CI)M' | Out-Null
+  & icacls.exe $data /remove 'NT SERVICE\OnlinePOSStore' | Out-Null
+  & icacls.exe $data /grant 'NT SERVICE\OnlinePOSStore:(RX)' | Out-Null
+  foreach($directoryName in @('pairing','runtime','logs')){
+    $directoryPath=Join-Path $data $directoryName
+    Protect-Directory $directoryPath
+    & icacls.exe $directoryPath /grant 'NT SERVICE\OnlinePOSStore:(OI)(CI)M' | Out-Null
+  }
+  $secretDirectory=Join-Path $data 'secrets'
+  & icacls.exe $secretDirectory /grant 'NT SERVICE\OnlinePOSStore:(RX)' | Out-Null
+  foreach($secretName in @('ca-key','ca-certificate','pki-password','server-p12','trust-p12')){
+    $serviceSecret=Join-Path $secretDirectory ($secretName+'.dpapi')
+    if(Test-Path $serviceSecret){ & icacls.exe $serviceSecret /grant 'NT SERVICE\OnlinePOSStore:R' | Out-Null }
+  }
   # PostgreSQL directory remains isolated from backend service access.
   if (Test-Path $pgdata) { & icacls.exe $pgdata /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 'NT SERVICE\OnlinePOSPostgres:(OI)(CI)F' | Out-Null }
   if ($role -eq 'BACKUP_MASTER') { Set-Service OnlinePOSStore -StartupType Disabled }
@@ -108,11 +128,11 @@ New-NetFirewallRule -Name OnlinePOS-Discovery -DisplayName 'OnlinePOS LAN discov
 Invoke-Tool -Arguments @('complete')
 & icacls.exe (Join-Path $data 'installation.json') /grant '*S-1-5-32-545:R' | Out-Null
 if ($role -eq 'MASTER') {
-  if (Get-NetTCPConnection -State Listen -LocalPort 8443 -ErrorAction SilentlyContinue) {
+  if (Get-NetTCPConnection -State Listen -LocalPort $httpsPort -ErrorAction SilentlyContinue) {
     if ((Get-Service OnlinePOSStore).Status -ne 'Running') { throw 'HTTPS port 8443 is occupied' }
   }
   Remove-NetFirewallRule -Name OnlinePOS-HTTPS -ErrorAction SilentlyContinue
-  New-NetFirewallRule -Name OnlinePOS-HTTPS -DisplayName 'OnlinePOS trusted store HTTPS' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8443 -RemoteAddress LocalSubnet -Profile Private -Program $java | Out-Null
+  New-NetFirewallRule -Name OnlinePOS-HTTPS -DisplayName 'OnlinePOS trusted store HTTPS' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $httpsPort -RemoteAddress LocalSubnet -Profile Private -Program $java | Out-Null
   Set-Service OnlinePOSStore -StartupType Automatic
   Start-Service OnlinePOSStore
   Invoke-Tool -Arguments @('pair-local')
