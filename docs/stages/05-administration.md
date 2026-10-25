@@ -1,8 +1,8 @@
 # Stage 5, increment 2: Administration — staff and access
 
-Authorized by the user's Administration implementation request on 25 October 2026. The subsequent
-request to use fields from the cloud SQL directory was explicitly withdrawn; this increment follows
-the approved username/roles/account-status plan. No cloud schema or staff records are imported or edited.
+Authorized by the user's Administration implementation request on 25 October 2026. This increment
+implements store-local staff and access management using the approved username, role and account-status
+model.
 
 ## Desktop
 
@@ -132,3 +132,31 @@ sales-screen builder remain separate increments. Sales/cloud sync/failover stay 
 Windows 10, separate Windows Slave, interactive UAC and production cutover gates remain unchanged.
 Rollback is fix-forward for application errors; do not start an older server against a database with
 owner/PIN-only protections. Restore only a verified isolated matching backup with its protected keys.
+
+
+### Final Windows and cross-platform evidence
+
+Implementation revision `d28e8bc` passed [CI run 40210325595](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40210325595):
+
+- Windows: **67 tests, zero failures, errors or skips**. All six actual JavaFX GUI scenarios ran.
+- Linux: **67 tests, zero failures or errors; eight platform/GUI skips** (six GUI and two Windows-only).
+- Formatting, static analysis, architecture checks and secret scanning passed.
+- The unsigned installer built successfully. Installed package checks passed setup/home startup,
+  protected owner designation, owner-only PIN assignment, staff/role creation, command replay,
+  permission denials, safe audit viewing, service restart and existing provisioning/data-preservation checks.
+- `WINDOWS_ADMINISTRATION_OWNER_CRUD_AUDIT_TLS_OK` appears twice, before and after backend restart.
+  `PACKAGED_MODULE_HOME_OK` and both existing module-PIN boundary markers also passed.
+
+Private artifacts: [development installer 12605367590](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40210325595/artifacts/12605367590),
+[Windows test evidence 12605262949](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40210325595/artifacts/12605262949),
+and [Linux test evidence 12605680800](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40210325595/artifacts/12605680800).
+
+The Windows GUI harness explicitly waits for the newly selected staff form to acquire its JavaFX skin
+before entering text. This removed a Windows-specific test race; it does not bypass product controls.
+The disposable local PostgreSQL cluster and its credential files were stopped and removed after
+verification. Source and operational databases, cloud files and the existing Windows 11 PC were not
+modified. This is hosted Windows acceptance, not additional manual UAC, Windows 10 or separate Slave
+acceptance.
+
+[Changed-file inventory](stage5-administration-changed-files.txt) lists the increment against the
+preceding module-home revision. Changes are pushed on `codex/stage5-administration`; main is unchanged.
