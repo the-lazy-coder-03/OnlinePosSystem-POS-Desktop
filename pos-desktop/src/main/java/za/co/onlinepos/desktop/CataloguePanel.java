@@ -196,15 +196,11 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     addEventFilter(KeyEvent.ANY, e -> activity.run());
     addEventFilter(MouseEvent.MOUSE_PRESSED, e -> activity.run());
     addEventFilter(TouchEvent.TOUCH_PRESSED, e -> activity.run());
-    search
-        .textProperty()
-        .addListener(
-            (o, a, b) -> {
-              if (!populating && discard()) {
-                page = 0;
-                rows();
-              }
-            });
+    search.textProperty().addListener((o, a, b) -> filterChanged(() -> search.setText(a)));
+    status.valueProperty().addListener((o, a, b) -> filterChanged(() -> status.setValue(a)));
+    filter.valueProperty().addListener((o, a, b) -> filterChanged(() -> filter.setValue(a)));
+    status.setId("catalogue-status");
+    filter.setId("catalogue-filter");
     list.getSelectionModel()
         .selectedItemProperty()
         .addListener(
@@ -218,6 +214,18 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
               }
             });
     refresh();
+  }
+
+  private void filterChanged(Runnable restore) {
+    if (populating || state == null || closed) return;
+    if (discard()) {
+      page = 0;
+      rows();
+    } else {
+      populating = true;
+      restore.run();
+      populating = false;
+    }
   }
 
   private void work(Callable<JsonNode> task, Consumer<JsonNode> success) {
@@ -323,13 +331,6 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     search.setId("catalogue-search");
     status.getItems().setAll("All statuses", "Active", "Inactive");
     status.setValue("All statuses");
-    status.setOnAction(
-        e -> {
-          if (!populating && discard()) {
-            page = 0;
-            rows();
-          }
-        });
     setupFilter();
     var reload = new Button("Reload");
     reload.setId("catalogue-reload");
@@ -512,13 +513,6 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
       filter.setAccessibleText("Filter by " + label(column));
     }
     filter.getSelectionModel().selectFirst();
-    filter.setOnAction(
-        e -> {
-          if (!populating && discard()) {
-            page = 0;
-            rows();
-          }
-        });
   }
 
   private List<JsonNode> filtered() {

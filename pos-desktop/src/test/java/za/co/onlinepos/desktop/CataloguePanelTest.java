@@ -245,6 +245,18 @@ class CataloguePanelTest {
             assertTrue(((ToggleButton) view.panel.lookup("#catalogue-items")).isSelected());
             ((TextField) view.panel.lookup("#catalogue-field-name")).setText("Changed item");
             answer(ButtonType.CANCEL);
+            ((TextField) view.panel.lookup("#catalogue-search")).setText("unapplied filter");
+            assertEquals("", ((TextField) view.panel.lookup("#catalogue-search")).getText());
+            answer(ButtonType.CANCEL);
+            var status = (ComboBox<?>) view.panel.lookup("#catalogue-status");
+            status.getSelectionModel().select(1);
+            assertEquals(0, status.getSelectionModel().getSelectedIndex());
+            answer(ButtonType.CANCEL);
+            var related = (ComboBox<?>) view.panel.lookup("#catalogue-filter");
+            related.getSelectionModel().select(1);
+            assertEquals(0, related.getSelectionModel().getSelectedIndex());
+
+            answer(ButtonType.CANCEL);
             ((ToggleButton) view.panel.lookup("#catalogue-ingredients")).fire();
             assertNotNull(view.panel.lookup("#catalogue-field-name"));
             assertTrue(((ToggleButton) view.panel.lookup("#catalogue-items")).isSelected());
