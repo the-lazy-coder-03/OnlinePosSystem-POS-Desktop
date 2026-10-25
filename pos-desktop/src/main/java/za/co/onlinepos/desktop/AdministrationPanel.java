@@ -349,6 +349,12 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     return table;
   }
 
+  private javafx.scene.layout.FlowPane flow(Node... children) {
+    var row = new javafx.scene.layout.FlowPane(10, 8, children);
+    row.setPrefWrapLength(400);
+    return row;
+  }
+
   private ScrollPane scroll(Node content) {
     var scroll = new ScrollPane(content);
     scroll.setFitToWidth(true);
@@ -448,7 +454,7 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     var listing =
         new VBox(
             12,
-            new HBox(10, search, find, reload, create),
+            flow(search, find, reload, create),
             table,
             new HBox(10, previous, new Label("Page " + (staffPage + 1)), next));
     VBox.setVgrow(table, Priority.ALWAYS);
@@ -865,8 +871,8 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
         new VBox(
             14,
             title("Audit History"),
-            new HBox(10, actor, action),
-            new HBox(10, new Label("Dates (terminal time)"), from, to, apply),
+            flow(actor, action),
+            flow(new Label("Dates (terminal time)"), from, to, apply),
             table,
             new HBox(10, previous, new Label("Page " + (auditPage + 1)), next));
     VBox.setVgrow(table, Priority.ALWAYS);

@@ -8,7 +8,8 @@ the approved username/roles/account-status plan. No cloud schema or staff record
 
 The Administration module now opens a JavaFX sidebar panel after its existing staff PIN check. The
 left sidebar has Overview, Staff, Roles & Permissions and Audit History. Selection is highlighted;
-sections are hidden unless the current staff member has the corresponding permission. The header shows
+sections are hidden unless the current staff member has the corresponding permission. Toolbars wrap
+at compact window widths; the staff form and list are checked at the existing 900-pixel minimum. The header shows
 store/terminal, authenticated username, connection status and Home / Lock. It replaces the grid header
 while Administration is open, preserving space for the forms.
 

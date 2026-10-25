@@ -437,6 +437,35 @@ class AdministrationPanelTest {
                   && !view.panel.lookup("#admin-staff-table").isDisabled());
       select(view, "cashier");
       screenshot(view, "admin-staff");
+      fx(
+          () -> {
+            view.stage.setWidth(900);
+            view.panel.applyCss();
+            view.panel.layout();
+            return null;
+          });
+      await(() -> view.panel.getWidth() <= 900);
+      fx(
+          () -> {
+            view.panel.applyCss();
+            view.panel.layout();
+            var form = view.panel.lookup("#admin-staff-username");
+            var listing = view.panel.lookup("#admin-staff-table");
+            assertTrue(
+                listing.localToScene(listing.getBoundsInLocal()).getMaxX()
+                    <= form.localToScene(form.getBoundsInLocal()).getMinX());
+            assertTrue(
+                form.localToScene(form.getBoundsInLocal()).getMaxX() <= view.panel.getWidth() + 1);
+            return null;
+          });
+      screenshot(view, "admin-staff-compact");
+      fx(
+          () -> {
+            view.stage.setWidth(1250);
+            view.panel.applyCss();
+            view.panel.layout();
+            return null;
+          });
       click(view, "#admin-reset-pin");
       var fields =
           fx(
