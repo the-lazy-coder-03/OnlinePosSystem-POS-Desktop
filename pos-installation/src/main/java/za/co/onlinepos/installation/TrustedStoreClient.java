@@ -137,4 +137,50 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
       throw new SecurityException("Wrong branch or cluster");
     return identity;
   }
+
+  /** Uses enrolled terminal TLS material and pinned store identity, never redirects. */
+  public byte[] moduleRequest(
+      Pairing.Invitation invitation,
+      SecretStore secrets,
+      String path,
+      String method,
+      byte[] body,
+      String token)
+      throws Exception {
+    if (!java.util.Set.of(
+            "/api/local/modules/enter",
+            "/api/local/modules/me",
+            "/api/local/modules/activity",
+            "/api/local/modules/logout")
+        .contains(path)) throw new IllegalArgumentException("Unsupported module endpoint");
+    identity(invitation, secrets);
+    try (var http = client(invitation, secrets, true)) {
+      var builder =
+          HttpRequest.newBuilder(endpoint(invitation, path))
+              .timeout(Duration.ofSeconds(10))
+              .header("Content-Type", "application/json");
+      if (token != null) builder.header("Authorization", "Bearer " + token);
+      builder.method(
+          method,
+          body == null
+              ? HttpRequest.BodyPublishers.noBody()
+              : HttpRequest.BodyPublishers.ofByteArray(body));
+      var response = http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+      if (response.statusCode() != 200) throw new ModuleFailure(response.statusCode());
+      return response.body();
+    }
+  }
+
+  public static final class ModuleFailure extends Exception {
+    private final int status;
+
+    public ModuleFailure(int status) {
+      super("Module request refused");
+      this.status = status;
+    }
+
+    public int status() {
+      return status;
+    }
+  }
 }

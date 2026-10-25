@@ -209,7 +209,7 @@ $databaseDependency
   }
   $secretDirectory=Join-Path $data 'secrets'
   if(Test-Path $secretDirectory){ & icacls.exe $secretDirectory /grant 'NT SERVICE\OnlinePOSStore:(RX)' | Out-Null }
-  foreach($secretName in @('ca-key','ca-certificate','pki-password','server-p12','trust-p12','database-runtime')){
+  foreach($secretName in @('ca-key','ca-certificate','pki-password','server-p12','trust-p12','database-runtime','pin-key')){
     $serviceSecret=Join-Path $secretDirectory ($secretName+'.dpapi')
     if(Test-Path $serviceSecret){ & icacls.exe $serviceSecret /grant 'NT SERVICE\OnlinePOSStore:R' | Out-Null }
   }

@@ -177,6 +177,13 @@ public final class DatabaseTool {
                       + "/pos_store",
                   "pos_owner",
                   (String) credentials.get("owner"));
+          if (operation.equals("migrate")
+              && !java.nio.file.Files.exists(root.resolve("secrets/pin-key.dpapi"))) {
+            byte[] key = new byte[32];
+            new java.security.SecureRandom().nextBytes(key);
+            secrets.put("pin-key", java.util.Base64.getEncoder().encode(key));
+            Arrays.fill(key, (byte) 0);
+          }
           if (operation.equals("migrate"))
             secrets.put(
                 "database-runtime",
@@ -196,6 +203,33 @@ public final class DatabaseTool {
         case "migrate" -> migrate(owner, identity);
         case "authorize" -> {
           /* Local management authentication above; no database mutation. */
+        }
+        case "set-pin", "assign-roles", "set-role" -> {
+          String subject = option(args, operation.equals("set-role") ? "role" : "username");
+          var values =
+              operation.equals("set-pin")
+                  ? java.util.Set.<String>of()
+                  : new java.util.HashSet<>(
+                      java.util.Arrays.asList(
+                          option(args, operation.equals("set-role") ? "permissions" : "roles")
+                              .split(",")));
+          char[] pin =
+              operation.equals("set-pin") ? readPassword("New six-digit staff PIN: ") : new char[0];
+          try {
+            String key =
+                operation.equals("set-pin")
+                    ? (windows
+                        ? new String(
+                            new WindowsSecretStore(InstalledConfiguration.dataRoot())
+                                .get("pin-key"),
+                            StandardCharsets.US_ASCII)
+                        : required("POS_PIN_KEY"))
+                    : "";
+            za.co.onlinepos.server.local.RbacProvisioning.apply(
+                owner, identity, operation, subject, values, pin, key);
+          } finally {
+            Arrays.fill(pin, '\0');
+          }
         }
         case "bootstrap-staff" -> {
           String user =
@@ -221,6 +255,15 @@ public final class DatabaseTool {
               + "). Check role, identity, credentials and migration diagnostics.");
       System.exit(1);
     }
+  }
+
+  private static String option(String[] args, String name) {
+    String prefix = "--" + name + "=";
+    return Arrays.stream(args)
+        .filter(a -> a.startsWith(prefix))
+        .findFirst()
+        .orElseThrow()
+        .substring(prefix.length());
   }
 
   private static String required(String name) {

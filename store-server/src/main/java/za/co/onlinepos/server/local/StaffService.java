@@ -139,15 +139,25 @@ public class StaffService {
     jdbc.update("DELETE FROM pos.staff_session WHERE token_hash=?", CommandJournal.digest(token));
   }
 
+  private void requireStaffManagement(Actor actor) {
+    journal.requireActor(actor);
+    if (jdbc.queryForObject(
+            "SELECT count(*) FROM pos.staff_role r JOIN pos.role_permission p ON p.branch_id=r.branch_id AND p.role_name=r.role_name WHERE r.staff_id=? AND r.branch_id=? AND p.permission='staff.manage'",
+            Integer.class,
+            actor.staffId(),
+            identity.branchId())
+        == 0) throw new LocalFailure(403, "Staff management permission required");
+  }
+
   public List<Map<String, Object>> list(Actor actor) {
-    actor.manager();
+    requireStaffManagement(actor);
     return jdbc.queryForList(
         "SELECT staff_id,username,role,enabled,revision FROM pos.staff WHERE branch_id=? ORDER BY username",
         identity.branchId());
   }
 
   public com.fasterxml.jackson.databind.JsonNode edit(Actor actor, StaffEdit edit) {
-    actor.manager();
+    requireStaffManagement(actor);
     CommandJournal.requireUuid(edit.commandId());
     CommandJournal.requireUuid(edit.staffId());
     if (edit.username() == null
@@ -187,6 +197,7 @@ public class StaffService {
         "STAFF_CHANGED",
         payload,
         () -> {
+          requireStaffManagement(actor);
           var previous =
               jdbc.queryForList(
                   "SELECT role,enabled,revision FROM pos.staff WHERE staff_id=? AND branch_id=?",

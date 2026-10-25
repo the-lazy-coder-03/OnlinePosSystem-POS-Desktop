@@ -14,6 +14,12 @@ import za.co.onlinepos.contracts.Branch;
 import za.co.onlinepos.contracts.InstallationRole;
 
 final class SetupWizard extends BorderPane {
+  private Runnable installedCallback = () -> {};
+
+  void onInstalled(Runnable callback) {
+    installedCallback = callback;
+  }
+
   private final ComboBox<Branch> branch = new ComboBox<>();
   private final TextField terminalName = new TextField();
   private final RadioButton master = new RadioButton("Master — hosts the store service");
@@ -199,6 +205,7 @@ final class SetupWizard extends BorderPane {
                         javafx.application.Platform.runLater(
                             () -> {
                               install.setDisable(false);
+                              if (error == null) installedCallback.run();
                               progress.setText(
                                   error == null
                                       ? "Installation recorded. Sales remain unavailable. " + result

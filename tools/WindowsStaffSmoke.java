@@ -31,7 +31,9 @@ public class WindowsStaffSmoke {
     tm.init(trust);
     var tls = SSLContext.getInstance("TLS");
     tls.init(km.getKeyManagers(), tm.getTrustManagers(), null);
-    String staffPassword = new java.io.BufferedReader(new java.io.InputStreamReader(System.in, StandardCharsets.UTF_8)).readLine();
+    var input=new java.io.BufferedReader(new java.io.InputStreamReader(System.in, StandardCharsets.UTF_8));
+    String staffPassword = input.readLine();
+    String staffPin=input.readLine();
     if(staffPassword!=null && staffPassword.startsWith("\uFEFF")) staffPassword=staffPassword.substring(1);
     try (var client = HttpClient.newBuilder().sslContext(tls).connectTimeout(java.time.Duration.ofSeconds(10)).build()) {
       URI base = URI.create("https://localhost:8443");
@@ -66,6 +68,19 @@ public class WindowsStaffSmoke {
         check(saved.path("effectivePrices").size()==241,"Installed branch baseline price count");
         get(client,base,"/api/local/branches/2/catalogue",token,403);
         System.out.println(args.length==2 ? "WINDOWS_STAGE4_CATALOGUE_TLS_IMPORT_REPLAY_OK" : "WINDOWS_STAGE4_CATALOGUE_RESTART_PERSISTENCE_OK");
+      }
+      if(staffPin!=null) {
+        var entry=HttpRequest.newBuilder(base.resolve("/api/local/modules/enter")).header("Content-Type","application/json")
+          .POST(HttpRequest.BodyPublishers.ofString(JsonFiles.JSON.writeValueAsString(Map.of("pin",staffPin,"module","REPORTS")))).build();
+        var moduleReply=client.send(entry,HttpResponse.BodyHandlers.ofString());
+        check(moduleReply.statusCode()==200,"Module PIN entry");
+        String moduleToken=JsonFiles.JSON.readTree(moduleReply.body()).path("token").asText();
+        get(client,base,"/api/local/modules/me",moduleToken,200);
+        get(client,base,"/api/local/menu",moduleToken,401);
+        get(client,base,"/api/local/modules/me",token,401);
+        post(client,base,"/api/local/modules/logout",moduleToken,"{}",200);
+        get(client,base,"/api/local/modules/me",moduleToken,401);
+        System.out.println("WINDOWS_STAGE5_MODULE_PIN_TLS_BOUNDARIES_OK");
       }
       var logout = HttpRequest.newBuilder(base.resolve("/api/local/auth/logout")).header("Authorization", "Bearer " + token).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}")).build();
       check(client.send(logout, HttpResponse.BodyHandlers.discarding()).statusCode() == 200, "Logout");

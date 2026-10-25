@@ -25,8 +25,8 @@ public final class DesktopContainer implements AutoCloseable {
     }
   }
 
-  SetupWizard view() {
-    return root.get().view();
+  DesktopShell view(boolean setupSmoke, boolean homeSmoke) {
+    return root.get().view(setupSmoke, homeSmoke);
   }
 
   public void close() {

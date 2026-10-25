@@ -1,7 +1,7 @@
 # Roadmap and stage gates
 
 Stages 3 and 4 are explicitly authorized by the user request on 25 October 2026. JavaFX uses Jakarta CDI/Weld SE; the separate backend retains Spring DI.
-Stage 3 local verification is complete. Stage 4 import round-trips passed for both branches from the user-provided local database. Windows Server CI and Windows 11 client checks passed. Interactive UAC, Windows 10/separate Windows Slave acceptance, full quote processing and production cutover remain separate gates. Stop before Stage 5.
+Stage 3 local verification is complete. Stage 4 import round-trips passed for both branches from the user-provided local database. Windows Server CI and Windows 11 client checks passed. Interactive UAC, Windows 10/separate Windows Slave acceptance, full quote processing and production cutover remain separate gates. The user has now authorized Stage 5 increment 1: the module home grid and PIN/RBAC access. Operational module content and the shared sales-screen builder remain subsequent work.
 
 | Stage | Deliverable |
 | --- | --- |
@@ -10,7 +10,7 @@ Stage 3 local verification is complete. Stage 4 import round-trips passed for bo
 | 2 | Unsigned development Windows installer, CDI, protected setup/pairing, LAN TLS/discovery; production signing and Windows 10/11 validation gated |
 | 3 | Local PostgreSQL, staff auth, revisions, audit, migrations, transactional outbox/inbox, backup smoke |
 | 4 | Consistent full catalogue/price import from an approved isolated cloud snapshot, parity validation |
-| 5 | Full JavaFX sales, customers, external-card/cash ledger, printing, branch price/availability |
+| 5 | Module home/PIN/RBAC first; then full JavaFX sales, customers, external-card/cash ledger, printing, branch price/availability |
 | 5A | Local driver accounts, shifts, dispatch, rates, payment-aware cash-up and paper reconciliation |
 | 6 | Multiple terminals, concurrency, realtime hints and cursor refresh |
 | 7 | Encrypted file H2 emergency sales, indefinite enrolled staff access and safe import/purge |
@@ -29,3 +29,5 @@ branch authority. Automatic HA cannot be enabled with the approved initial two-m
 
 Before any live cutover, verify deployed cloud revision, actual schema, RLS ownership and migration state,
 reconcile existing shifts/orders/payments, restore a real backup, and rehearse branch ownership rollback.
+
+Stage 5 increment 1: [module home, PIN access and operations](stages/05-module-home.md).

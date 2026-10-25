@@ -67,6 +67,7 @@ class LocalPostgresIT {
     properties.add("pos.database.url", () -> System.getenv("POS_TEST_DATABASE_URL"));
     properties.add("pos.database.password", () -> System.getenv("POS_TEST_RUNTIME_PASSWORD"));
     properties.add("pos.branch-id", () -> 1);
+    properties.add("pos.pin-key", () -> PIN_KEY);
     properties.add("pos.cluster-id", IDENTITY::clusterId);
     properties.add("pos.installation-id", IDENTITY::installationId);
     properties.add("pos.development-terminal", () -> TERMINAL.substring(12));
@@ -79,6 +80,8 @@ class LocalPostgresIT {
   @Autowired LocalOperations operations;
   @Autowired StaffService staff;
   @Autowired CommandJournal journal;
+  @Autowired za.co.onlinepos.server.local.ModuleAccess modules;
+  private static final String PIN_KEY = java.util.Base64.getEncoder().encodeToString(new byte[32]);
   private StaffService.Actor manager;
   private String token;
 
@@ -86,6 +89,12 @@ class LocalPostgresIT {
   void fixture() {
     ADMIN.execute(
         "TRUNCATE pos.catalogue_bootstrap,pos.staff,pos.staff_session,pos.catalog_item,pos.branch_price,pos.local_customer,pos.order_draft,pos.order_line,pos.order_line_extra,pos.payment_metadata,pos.command_receipt,pos.audit_record,pos.outbox_event,pos.inbox_receipt,pos.terminal_printer CASCADE");
+    ADMIN.execute("TRUNCATE pos.pin_throttle,pos.rbac_role CASCADE");
+    ADMIN.update("INSERT INTO pos.rbac_role VALUES (1,'MANAGER'),(1,'CASHIER')");
+    for (var module : za.co.onlinepos.contracts.PosModule.values())
+      ADMIN.update("INSERT INTO pos.role_permission VALUES (1,'MANAGER',?)", module.permission());
+    ADMIN.update(
+        "INSERT INTO pos.role_permission VALUES (1,'MANAGER','rbac.manage'),(1,'MANAGER','staff.manage'),(1,'CASHIER','module.sales_orders')");
     ADMIN.update("UPDATE pos.stream_head SET position=0");
     DatabaseTool.bootstrap(OWNER, IDENTITY, "manager", PASSWORD.toCharArray());
     ADMIN.update(
@@ -168,7 +177,7 @@ class LocalPostgresIT {
                 "INSERT INTO pos.local_customer(customer_id,branch_id,display_name) VALUES (?,2,'wrong branch')",
                 UUID.randomUUID()));
     assertEquals(
-        2,
+        3,
         ADMIN.queryForObject(
             "SELECT count(*) FROM public.flyway_schema_history WHERE success", Integer.class));
     assertThrows(
@@ -573,7 +582,7 @@ class LocalPostgresIT {
     String bound =
         (String) staff.login(new StaffService.Login("manager", PASSWORD), fingerprint).get("token");
     var terminalFilter = new za.co.onlinepos.server.TerminalAuthenticationFilter(registry);
-    var staffFilter = new za.co.onlinepos.server.StaffAuthenticationFilter(staff, null);
+    var staffFilter = new za.co.onlinepos.server.StaffAuthenticationFilter(staff, null, modules);
     java.util.function.BiFunction<String, Boolean, Integer> call =
         (session, secure) -> {
           var request =
@@ -1046,5 +1055,235 @@ class LocalPostgresIT {
           IDENTITY.installationId());
       ADMIN.update("INSERT INTO pos.stream_head(branch_id) VALUES (1)");
     }
+  }
+
+  private void provisionPin(String username, String pin) {
+    za.co.onlinepos.server.local.RbacProvisioning.apply(
+        OWNER, IDENTITY, "set-pin", username, java.util.Set.of(), pin.toCharArray(), PIN_KEY);
+  }
+
+  private String enter(String pin, za.co.onlinepos.contracts.PosModule module) {
+    return (String)
+        modules
+            .enter(new za.co.onlinepos.server.local.ModuleAccess.Entry(pin, module), TERMINAL)
+            .get("token");
+  }
+
+  @Test
+  void modulePinLeadingZerosBoundariesAndLogout() throws Exception {
+    provisionPin("manager", "012345");
+    http.perform(
+            post("/api/local/modules/enter")
+                .contentType("application/json")
+                .content("{\"pin\":\"012345\",\"module\":\"REPORTS\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.username").value("manager"));
+    String moduleToken = enter("012345", za.co.onlinepos.contracts.PosModule.REPORTS);
+    var session = modules.authenticate(moduleToken, TERMINAL, false);
+    assertEquals("manager", session.username());
+    assertEquals(za.co.onlinepos.contracts.PosModule.REPORTS, session.module());
+    assertEquals(
+        401,
+        assertThrows(
+                LocalFailure.class,
+                () -> modules.authenticate(moduleToken, "other-terminal", false))
+            .status());
+    http.perform(get("/api/local/modules/me").header("Authorization", "Bearer " + moduleToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.module").value("REPORTS"));
+    http.perform(get("/api/local/menu").header("Authorization", "Bearer " + moduleToken))
+        .andExpect(status().isUnauthorized());
+    http.perform(get("/api/local/modules/me").header("Authorization", "Bearer " + token))
+        .andExpect(status().isUnauthorized());
+    http.perform(
+            post("/api/local/modules/logout")
+                .content("{}")
+                .header("Authorization", "Bearer " + moduleToken))
+        .andExpect(status().isOk());
+    assertThrows(LocalFailure.class, () -> modules.authenticate(moduleToken, TERMINAL, false));
+    assertEquals(
+        401,
+        assertThrows(
+                LocalFailure.class,
+                () -> enter("12345", za.co.onlinepos.contracts.PosModule.REPORTS))
+            .status());
+    assertTrue(
+        ADMIN.queryForObject(
+                "SELECT count(*) FROM pos.audit_record WHERE details::text LIKE '%012345%'",
+                Integer.class)
+            == 0);
+  }
+
+  @Test
+  void modulePinPermissionDenialDuplicateAndImmediateRevocation() throws Exception {
+    UUID cashier = UUID.randomUUID();
+    staff.edit(
+        manager,
+        new StaffService.StaffEdit(
+            UUID.randomUUID(), cashier, "cashier", "CASHIER", true, 0, PASSWORD));
+    provisionPin("manager", "012345");
+    provisionPin("cashier", "023456");
+    assertThrows(
+        org.springframework.dao.DataIntegrityViolationException.class,
+        () -> provisionPin("cashier", "012345"));
+    assertEquals(
+        403,
+        assertThrows(
+                LocalFailure.class,
+                () -> enter("023456", za.co.onlinepos.contracts.PosModule.REPORTS))
+            .status());
+    String access = enter("023456", za.co.onlinepos.contracts.PosModule.SALES_ORDERS);
+    za.co.onlinepos.server.local.RbacProvisioning.apply(
+        OWNER,
+        IDENTITY,
+        "set-role",
+        "CUSTOM",
+        java.util.Set.of("module.sales_orders", "module.reports"),
+        new char[0],
+        PIN_KEY);
+    za.co.onlinepos.server.local.RbacProvisioning.apply(
+        OWNER,
+        IDENTITY,
+        "assign-roles",
+        "cashier",
+        java.util.Set.of("CASHIER", "CUSTOM"),
+        new char[0],
+        PIN_KEY);
+    assertThrows(LocalFailure.class, () -> modules.authenticate(access, TERMINAL, false));
+    String report = enter("023456", za.co.onlinepos.contracts.PosModule.REPORTS);
+    assertTrue(
+        modules
+            .authenticate(report, TERMINAL, false)
+            .permissions()
+            .contains("module.sales_orders"));
+    za.co.onlinepos.server.local.RbacProvisioning.apply(
+        OWNER,
+        IDENTITY,
+        "set-role",
+        "CUSTOM",
+        java.util.Set.of("module.sales_orders"),
+        new char[0],
+        PIN_KEY);
+    assertThrows(LocalFailure.class, () -> modules.authenticate(report, TERMINAL, false));
+    assertEquals(
+        403,
+        assertThrows(
+                LocalFailure.class,
+                () -> enter("023456", za.co.onlinepos.contracts.PosModule.REPORTS))
+            .status());
+    String sales = enter("023456", za.co.onlinepos.contracts.PosModule.SALES_ORDERS);
+    ADMIN.update("UPDATE pos.staff SET enabled=false WHERE staff_id=?", cashier);
+    assertThrows(LocalFailure.class, () -> modules.authenticate(sales, TERMINAL, false));
+    assertEquals(
+        401,
+        assertThrows(
+                LocalFailure.class,
+                () -> enter("023456", za.co.onlinepos.contracts.PosModule.SALES_ORDERS))
+            .status());
+  }
+
+  @Test
+  void modulePinThrottlingIsDurableAcrossTerminalsAndExpiryIsEnforced() {
+    provisionPin("manager", "012345");
+    for (int i = 0; i < 5; i++)
+      assertEquals(
+          401,
+          assertThrows(
+                  LocalFailure.class,
+                  () -> enter("999999", za.co.onlinepos.contracts.PosModule.REPORTS))
+              .status());
+    assertEquals(
+        429,
+        assertThrows(
+                LocalFailure.class,
+                () -> enter("012345", za.co.onlinepos.contracts.PosModule.REPORTS))
+            .status());
+    String other =
+        (String)
+            modules
+                .enter(
+                    new za.co.onlinepos.server.local.ModuleAccess.Entry(
+                        "012345", za.co.onlinepos.contracts.PosModule.REPORTS),
+                    "different")
+                .get("token");
+    ADMIN.update("UPDATE pos.module_session SET expires_at=clock_timestamp()-interval '1 second'");
+    assertThrows(LocalFailure.class, () -> modules.authenticate(other, "different", true));
+    ADMIN.execute("TRUNCATE pos.pin_throttle");
+    for (int i = 0; i < 30; i++) {
+      final String terminal = "guess-" + i;
+      assertEquals(
+          401,
+          assertThrows(
+                  LocalFailure.class,
+                  () ->
+                      modules.enter(
+                          new za.co.onlinepos.server.local.ModuleAccess.Entry(
+                              "999999", za.co.onlinepos.contracts.PosModule.REPORTS),
+                          terminal))
+              .status());
+    }
+    assertEquals(
+        429,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    modules.enter(
+                        new za.co.onlinepos.server.local.ModuleAccess.Entry(
+                            "012345", za.co.onlinepos.contracts.PosModule.REPORTS),
+                        "fresh-terminal"))
+            .status());
+    ADMIN.update(
+        "UPDATE pos.pin_throttle SET window_start=clock_timestamp()-interval '6 minutes',locked_until=clock_timestamp()-interval '1 second'");
+    String recovered = enter("012345", za.co.onlinepos.contracts.PosModule.REPORTS);
+    assertNotNull(modules.authenticate(recovered, TERMINAL, false));
+  }
+
+  @Test
+  void finalRbacAdministratorProtectedAndRuntimeCannotProvisionPrivileges() {
+    assertThrows(
+        org.springframework.transaction.TransactionSystemException.class,
+        () ->
+            za.co.onlinepos.server.local.RbacProvisioning.apply(
+                OWNER,
+                IDENTITY,
+                "assign-roles",
+                "manager",
+                java.util.Set.of("CASHIER"),
+                new char[0],
+                PIN_KEY));
+    assertThrows(
+        org.springframework.dao.DataIntegrityViolationException.class,
+        () -> ADMIN.update("UPDATE pos.staff SET enabled=false"));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.update(
+                "INSERT INTO pos.staff_role SELECT branch_id,staff_id,'CASHIER' FROM pos.staff"));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> runtime.update("UPDATE pos.role_permission SET permission='rbac.manage'"));
+    // Password recovery remains valid after additive migrations.
+    assertNotNull(
+        staff.authenticate(
+            (String)
+                staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token"),
+            TERMINAL));
+  }
+
+  @Test
+  void passwordRecoveryCannotBypassConfiguredStaffManagementPermission() throws Exception {
+    var grants = new java.util.TreeSet<>(modules.permissions(manager.staffId()));
+    grants.remove("staff.manage");
+    za.co.onlinepos.server.local.RbacProvisioning.apply(
+        OWNER, IDENTITY, "set-role", "MANAGER", grants, new char[0], PIN_KEY);
+    assertThrows(LocalFailure.class, () -> staff.authenticate(token, TERMINAL));
+    String fresh =
+        (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
+    http.perform(get("/api/local/staff").header("Authorization", "Bearer " + fresh))
+        .andExpect(status().isForbidden());
+    assertEquals(
+        403,
+        assertThrows(LocalFailure.class, () -> staff.list(staff.authenticate(fresh, TERMINAL)))
+            .status());
   }
 }

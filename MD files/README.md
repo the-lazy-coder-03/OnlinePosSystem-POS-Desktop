@@ -39,3 +39,6 @@ All source records and 478 price baselines matched; Windows and live cutover acc
 [Windows 11 validation](../docs/stages/04-windows11-client-validation.md) covers real reboot/recovery,
 permissions, LAN discovery/TLS and preserved data after reinstall. The corrected CI run passed 48 Windows
 tests; interactive UAC, Windows 10 and a separate Windows Slave still need acceptance.
+
+Stage 5 increment 1 adds the [module home grid and PIN/RBAC access](../docs/stages/05-module-home.md).
+Configured terminals open the grid; module shells remain unfinished and cannot accept sales.

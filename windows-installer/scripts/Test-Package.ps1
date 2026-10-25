@@ -37,6 +37,14 @@ $smoke.Refresh()
 if($smoke.ExitCode -ne 0 -or (Get-Content (Join-Path $out 'packaged-fx.log') -Raw) -notmatch 'DESKTOP_SMOKE_OK'){throw 'Packaged JavaFX launch failed'}
 if((Get-Content (Join-Path $out 'packaged-fx.log') -Raw) -notmatch 'DESKTOP_CDI_CLOSED'){throw 'Packaged CDI shutdown failed'}
 Write-Output 'PACKAGED_JAVAFX_CDI_OK'
+$homeSmoke=Start-Process (Join-Path $program 'desktop\OnlinePOS.exe') -ArgumentList '--home-smoke-test' -PassThru -RedirectStandardOutput (Join-Path $out 'packaged-home.log') -RedirectStandardError (Join-Path $out 'packaged-home-error.log')
+$homeHandle=$homeSmoke.Handle
+if(-not $homeSmoke.WaitForExit(60000)){Stop-Process -Id $homeSmoke.Id -Force;throw 'Packaged home grid timed out'}
+$homeSmoke.Refresh()
+if($homeSmoke.ExitCode -ne 0 -or (Get-Content (Join-Path $out 'packaged-home.log') -Raw) -notmatch 'DESKTOP_SMOKE_OK'){throw 'Packaged home grid failed'}
+if((Get-Content (Join-Path $out 'packaged-home.log') -Raw) -notmatch 'DESKTOP_CDI_CLOSED'){throw 'Home grid CDI shutdown failed'}
+Write-Output 'PACKAGED_MODULE_HOME_OK'
+
 New-Item $data -ItemType Directory -Force|Out-Null
 Set-Content (Join-Path $data 'preserve.marker') 'preserve'
 $uninstall=Start-Process (Join-Path $program 'unins000.exe') -Wait -PassThru -ArgumentList '/VERYSILENT'
@@ -121,16 +129,19 @@ try{
  }
  # Bootstrap staff through the protected owner console, then call the real installed TLS API.
  $staffPassword=([guid]::NewGuid()).ToString()
+ $staffPin=([Math]::Abs(([guid]::NewGuid()).GetHashCode() % 1000000)).ToString('D6')
  try {
   $powershell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
   $databaseScript=Join-Path $program 'setup\Local-Database.ps1'
   Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation BootstrapStaff -Username ci.manager -PasswordStdin') -InputLines @($password,$staffPassword)
   if($LASTEXITCODE -ne 0){throw 'Protected staff bootstrap failed'}
+  Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation SetPin -Username ci.manager -PasswordStdin') -InputLines @($password,$staffPin)
+  if($LASTEXITCODE -ne 0){throw 'Protected PIN provisioning failed'}
   $classes=Join-Path $out 'stage3-test-client';New-Item $classes -ItemType Directory -Force|Out-Null
   $clientPath=Join-Path $program 'desktop\app\*'
   & (Join-Path $env:JAVA_HOME 'bin\javac.exe') -cp $clientPath -d $classes (Join-Path $root 'tools\WindowsStaffSmoke.java')
   if($LASTEXITCODE -ne 0){throw 'Cannot compile the isolated test client'}
-  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" "'+(Join-Path $root 'store-server\src\main\resources\catalogue-schema-v1.json')+'"') -InputLines @($staffPassword)
+  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" "'+(Join-Path $root 'store-server\src\main\resources\catalogue-schema-v1.json')+'"') -InputLines @($staffPassword,$staffPin)
   if($LASTEXITCODE -ne 0){throw 'Installed staff TLS API failed'}
   Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation Backup -PasswordStdin') -InputLines @($password)
   if($LASTEXITCODE -ne 0 -or -not(Get-ChildItem (Join-Path $data 'backups') -Filter '*.dpapi')){throw 'Protected encrypted backup failed'}
@@ -138,7 +149,7 @@ try{
   Restart-Service OnlinePOSStore
   & (Join-Path $program 'desktop\runtime\bin\java.exe') -cp $clientPath za.co.onlinepos.installation.SetupTool pair-local
   if($LASTEXITCODE -ne 0){throw 'Restarted Master readiness failed'}
-  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" "'+(Join-Path $root 'store-server\src\main\resources\catalogue-schema-v1.json')+'" --verify-catalogue') -InputLines @($staffPassword)
+  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" "'+(Join-Path $root 'store-server\src\main\resources\catalogue-schema-v1.json')+'" --verify-catalogue') -InputLines @($staffPassword,$staffPin)
 
  }finally{$staffPassword=$null}
  Write-Output 'WINDOWS_MASTER_INSTALL_REPAIR_GRANTS_FIREWALL_OK' 
