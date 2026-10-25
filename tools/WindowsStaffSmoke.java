@@ -45,12 +45,12 @@ public class WindowsStaffSmoke {
       get(client, base, "/api/local/menu", null, 401);
       if (args.length > 0) {
         var snapshot = JsonFiles.JSON.readTree(java.nio.file.Files.readString(Path.of(args[0])));
-        String hash = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
-            .digest(canonical(snapshot).toString().getBytes(StandardCharsets.UTF_8)));
+        var schema=JsonFiles.JSON.readTree(java.nio.file.Files.readString(Path.of(args[1])));
+        String hash = fingerprint(snapshot,schema);
         String endpoint = "/api/local/branches/1/catalogue/bootstrap";
         var command = Map.of("commandId", java.util.UUID.randomUUID().toString(), "expectedSha256", hash, "snapshot", snapshot);
         String content = JsonFiles.JSON.writeValueAsString(command);
-        if (args.length == 1) {
+        if (args.length == 2) {
           post(client,base,endpoint,token,content,200);
           post(client,base,endpoint,token,content,200);
           post(client,base,"/api/local/branches/2/catalogue/bootstrap",token,content,403);
@@ -65,13 +65,29 @@ public class WindowsStaffSmoke {
         check(canonical(snapshot).equals(canonical(saved.path("snapshot"))),"Full catalogue survived import/restart");
         check(saved.path("effectivePrices").size()==241,"Installed branch baseline price count");
         get(client,base,"/api/local/branches/2/catalogue",token,403);
-        System.out.println(args.length==1 ? "WINDOWS_STAGE4_CATALOGUE_TLS_IMPORT_REPLAY_OK" : "WINDOWS_STAGE4_CATALOGUE_RESTART_PERSISTENCE_OK");
+        System.out.println(args.length==2 ? "WINDOWS_STAGE4_CATALOGUE_TLS_IMPORT_REPLAY_OK" : "WINDOWS_STAGE4_CATALOGUE_RESTART_PERSISTENCE_OK");
       }
       var logout = HttpRequest.newBuilder(base.resolve("/api/local/auth/logout")).header("Authorization", "Bearer " + token).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}")).build();
       check(client.send(logout, HttpResponse.BodyHandlers.discarding()).statusCode() == 200, "Logout");
       get(client, base, "/api/local/menu", token, 401);
     }
     System.out.println("WINDOWS_STAGE3_STAFF_TLS_API_OK");
+  }
+  private static String fingerprint(com.fasterxml.jackson.databind.JsonNode snapshot,com.fasterxml.jackson.databind.JsonNode schema) throws Exception {
+    var normalized=(com.fasterxml.jackson.databind.node.ObjectNode)snapshot.deepCopy();
+    var tables=JsonFiles.JSON.createObjectNode();
+    schema.properties().forEach(entry -> {
+      var rows=new java.util.ArrayList<com.fasterxml.jackson.databind.JsonNode>();
+      snapshot.path("tables").path(entry.getKey()).forEach(rows::add);
+      rows.sort(java.util.Comparator.comparing(row -> {
+        var key=JsonFiles.JSON.createArrayNode();entry.getValue().path("keys").forEach(k -> key.add(row.get(k.asText())));
+        return canonical(key).toString();
+      }));
+      tables.set(entry.getKey(),JsonFiles.JSON.valueToTree(rows));
+    });
+    normalized.set("tables",tables);
+    return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+        .digest(canonical(normalized).toString().getBytes(StandardCharsets.UTF_8)));
   }
   private static com.fasterxml.jackson.databind.JsonNode canonical(com.fasterxml.jackson.databind.JsonNode value) {
     if(value.isNumber()) return com.fasterxml.jackson.databind.node.DecimalNode.valueOf(value.decimalValue().stripTrailingZeros());

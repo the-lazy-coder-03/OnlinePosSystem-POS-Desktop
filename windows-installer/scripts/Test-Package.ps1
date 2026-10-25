@@ -130,7 +130,7 @@ try{
   $clientPath=Join-Path $program 'desktop\app\*'
   & (Join-Path $env:JAVA_HOME 'bin\javac.exe') -cp $clientPath -d $classes (Join-Path $root 'tools\WindowsStaffSmoke.java')
   if($LASTEXITCODE -ne 0){throw 'Cannot compile the isolated test client'}
-  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'"') -InputLines @($staffPassword)
+  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" "'+(Join-Path $root 'store-server\src\main\resources\catalogue-schema-v1.json')+'"') -InputLines @($staffPassword)
   if($LASTEXITCODE -ne 0){throw 'Installed staff TLS API failed'}
   Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation Backup -PasswordStdin') -InputLines @($password)
   if($LASTEXITCODE -ne 0 -or -not(Get-ChildItem (Join-Path $data 'backups') -Filter '*.dpapi')){throw 'Protected encrypted backup failed'}
@@ -138,7 +138,7 @@ try{
   Restart-Service OnlinePOSStore
   & (Join-Path $program 'desktop\runtime\bin\java.exe') -cp $clientPath za.co.onlinepos.installation.SetupTool pair-local
   if($LASTEXITCODE -ne 0){throw 'Restarted Master readiness failed'}
-  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" --verify-catalogue') -InputLines @($staffPassword)
+  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" "'+(Join-Path $root 'store-server\src\main\resources\catalogue-schema-v1.json')+'" --verify-catalogue') -InputLines @($staffPassword)
 
  }finally{$staffPassword=$null}
  Write-Output 'WINDOWS_MASTER_INSTALL_REPAIR_GRANTS_FIREWALL_OK' 
