@@ -3,8 +3,6 @@ package za.co.onlinepos.desktop;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -25,7 +23,6 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
-import javafx.scene.control.DatePicker;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
@@ -48,6 +45,7 @@ import za.co.onlinepos.installation.TrustedStoreClient;
 
 /** Session-local forms; closing clears inputs and ignores all outstanding responses. */
 final class AdministrationPanel extends BorderPane implements AutoCloseable {
+  private AuditPanel auditPanel;
   private final ModuleGateway gateway;
   private final ExecutorService executor;
   private final String token;
@@ -199,6 +197,7 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     if (allowed("staff.manage")) addTab("Staff", "staff.manage");
     if (allowed("rbac.manage")) addTab("Roles & Permissions", "rbac.manage");
     if (allowed("audit.view")) addTab("Audit History", "audit.view");
+    addTab("Security / Audit Tracking", null);
   }
 
   private void addTab(String name, String permission) {
@@ -217,6 +216,10 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
             selectTab(section);
             return;
           }
+          if (auditPanel != null) {
+            auditPanel.close();
+            auditPanel = null;
+          }
           section = name;
           selectTab(name);
           switch (name) {
@@ -226,10 +229,8 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
               loadStaff(null);
             }
             case "Roles & Permissions" -> loadRoles(null);
-            case "Audit History" -> {
-              auditPage = 0;
-              loadAudit();
-            }
+            case "Audit History" -> showAudit(false);
+            case "Security / Audit Tracking" -> showAudit(true);
             default -> throw new IllegalStateException();
           }
         });
@@ -781,103 +782,13 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     };
   }
 
-  private void loadAudit() {
-    section = "Audit History";
+  private void showAudit(boolean settings) {
+    section = settings ? "Security / Audit Tracking" : "Audit History";
     selectTab(section);
-    work(
-        () ->
-            get(
-                "audit?page="
-                    + auditPage
-                    + "&actor="
-                    + encode(auditActor)
-                    + "&action="
-                    + encode(auditAction)
-                    + (auditFrom.isEmpty() ? "" : "&from=" + encode(auditFrom))
-                    + (auditTo.isEmpty() ? "" : "&to=" + encode(auditTo))),
-        this::auditScreen);
-  }
-
-  private void auditScreen(JsonNode response) {
     dirty = false;
-    var actor = new TextField(auditActor);
-    actor.setPromptText("Staff username");
-    var action = new TextField(auditAction);
-    action.setPromptText("Action, e.g. ADMIN_PIN_CHANGED");
-    var from = new DatePicker();
-    var to = new DatePicker();
-    if (!auditFrom.isEmpty())
-      from.setValue(
-          java.time.Instant.parse(auditFrom).atZone(ZoneId.systemDefault()).toLocalDate());
-    if (!auditTo.isEmpty())
-      to.setValue(java.time.Instant.parse(auditTo).atZone(ZoneId.systemDefault()).toLocalDate());
-    var apply = new Button("Apply filters");
-    apply.setOnAction(
-        e -> {
-          if (from.getValue() != null
-              && to.getValue() != null
-              && from.getValue().isAfter(to.getValue())) {
-            feedback.setText("The start date must be before the end date.");
-            return;
-          }
-          auditActor = actor.getText();
-          auditAction = action.getText().trim().toUpperCase(java.util.Locale.ROOT);
-          auditFrom =
-              from.getValue() == null
-                  ? ""
-                  : from.getValue().atStartOfDay(ZoneId.systemDefault()).toInstant().toString();
-          auditTo =
-              to.getValue() == null
-                  ? ""
-                  : to.getValue()
-                      .plusDays(1)
-                      .atStartOfDay(ZoneId.systemDefault())
-                      .toInstant()
-                      .minusNanos(1)
-                      .toString();
-          auditPage = 0;
-          loadAudit();
-        });
-    var table =
-        table(
-            "admin-audit-table",
-            "When:occurredAt",
-            "Staff:actor",
-            "Action:action",
-            "Account / role:targetName");
-    @SuppressWarnings("unchecked")
-    var when = (TableColumn<JsonNode, String>) table.getColumns().getFirst();
-    when.setCellValueFactory(
-        row ->
-            new ReadOnlyStringWrapper(
-                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-                    .withZone(ZoneId.systemDefault())
-                    .format(java.time.Instant.parse(row.getValue().path("occurredAt").asText()))));
-    response.path("items").forEach(table.getItems()::add);
-    var previous = new Button("Previous");
-    previous.setDisable(auditPage == 0);
-    previous.setOnAction(
-        e -> {
-          auditPage--;
-          loadAudit();
-        });
-    var next = new Button("Next");
-    next.setDisable(!response.path("hasMore").asBoolean());
-    next.setOnAction(
-        e -> {
-          auditPage++;
-          loadAudit();
-        });
-    var content =
-        new VBox(
-            14,
-            title("Audit History"),
-            flow(actor, action),
-            flow(new Label("Dates (terminal time)"), from, to, apply),
-            table,
-            new HBox(10, previous, new Label("Page " + (auditPage + 1)), next));
-    VBox.setVgrow(table, Priority.ALWAYS);
-    body.setCenter(content);
+    auditPanel =
+        new AuditPanel(gateway, executor, token, settings, value -> dirty = value, activity);
+    body.setCenter(auditPanel);
   }
 
   private static String encode(String value) {
@@ -887,6 +798,10 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
   @Override
   public void close() {
     closed = true;
+    if (auditPanel != null) {
+      auditPanel.close();
+      auditPanel = null;
+    }
     ++generation;
     dirty = false;
     command = null;

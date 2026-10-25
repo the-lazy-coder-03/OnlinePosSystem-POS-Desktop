@@ -112,17 +112,14 @@ public final class RbacProvisioning {
                     staff);
                 jdbc.update("DELETE FROM pos.staff_session WHERE staff_id=?", staff);
               }
-              jdbc.update(
-                  "INSERT INTO pos.audit_record(audit_id,branch_id,actor_id,action,aggregate_id,details) VALUES (?,?,?,?,?,?::jsonb)",
-                  UUID.randomUUID(),
-                  identity.branchId(),
-                  identity.installationId(),
-                  "RBAC_" + operation.toUpperCase(Locale.ROOT).replace('-', '_'),
-                  aggregate,
-                  za.co.onlinepos.installation.JsonFiles.JSON
-                      .valueToTree(
-                          java.util.Map.of("origin", "protected-owner-console", "subject", subject))
-                      .toString());
+              new AuditService(jdbc, za.co.onlinepos.installation.JsonFiles.JSON, identity)
+                  .record(
+                      null,
+                      "protected-owner-console",
+                      "RBAC_" + operation.toUpperCase(Locale.ROOT).replace('-', '_'),
+                      aggregate,
+                      null,
+                      java.util.Map.of("origin", "protected-owner-console", "subject", subject));
             });
   }
 }

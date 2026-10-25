@@ -42,6 +42,7 @@ public class StaffService {
   }
 
   private final JdbcTemplate jdbc;
+  private final AuditService audit;
   private final TransactionTemplate transactions;
   private final CommandJournal journal;
   private final LocalDatabase.Identity identity;
@@ -53,6 +54,8 @@ public class StaffService {
       CommandJournal journal,
       LocalDatabase.Identity identity) {
     this.jdbc = jdbc;
+    this.audit =
+        new AuditService(jdbc, new com.fasterxml.jackson.databind.ObjectMapper(), identity);
     this.transactions = transactions;
     this.journal = journal;
     this.identity = identity;
@@ -68,6 +71,7 @@ public class StaffService {
       Map<String, Object> result =
           transactions.execute(
               status -> {
+                journal.lockStream();
                 var rows =
                     jdbc.queryForList(
                         "SELECT * FROM pos.staff WHERE branch_id=? AND username=? FOR UPDATE",
@@ -104,6 +108,8 @@ public class StaffService {
                     terminal,
                     row.get("credential_version"));
                 jdbc.update("DELETE FROM pos.staff_session WHERE expires_at<clock_timestamp()");
+                audit.record(
+                    id, terminal, "STAFF_LOGIN", id, null, Map.of("module", "PASSWORD_SESSION"));
                 return Map.of(
                     "token",
                     token,
@@ -137,7 +143,27 @@ public class StaffService {
   }
 
   public void logout(String token) {
-    jdbc.update("DELETE FROM pos.staff_session WHERE token_hash=?", CommandJournal.digest(token));
+    transactions.executeWithoutResult(
+        status -> {
+          journal.lockStream();
+          var rows =
+              jdbc.queryForList(
+                  "SELECT staff_id,terminal_identity FROM pos.staff_session WHERE token_hash=? AND branch_id=?",
+                  CommandJournal.digest(token),
+                  identity.branchId());
+          if (!rows.isEmpty()) {
+            var row = rows.getFirst();
+            audit.record(
+                (UUID) row.get("staff_id"),
+                (String) row.get("terminal_identity"),
+                "STAFF_LOGOUT",
+                (UUID) row.get("staff_id"),
+                null,
+                Map.of("module", "PASSWORD_SESSION"));
+            jdbc.update(
+                "DELETE FROM pos.staff_session WHERE token_hash=?", CommandJournal.digest(token));
+          }
+        });
   }
 
   private void requireStaffManagement(Actor actor) {

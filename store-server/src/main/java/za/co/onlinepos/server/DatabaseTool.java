@@ -105,12 +105,15 @@ public final class DatabaseTool {
                   identity.branchId(),
                   username,
                   hash);
-              jdbc.update(
-                  "INSERT INTO pos.audit_record(audit_id,branch_id,actor_id,action,aggregate_id,details) VALUES (?,?,?,'STAFF_BOOTSTRAPPED',?,'{}')",
-                  UUID.randomUUID(),
-                  identity.branchId(),
-                  id,
-                  id);
+              new za.co.onlinepos.server.local.AuditService(
+                      jdbc, za.co.onlinepos.installation.JsonFiles.JSON, identity)
+                  .record(
+                      id,
+                      "protected-owner-console",
+                      "STAFF_BOOTSTRAPPED",
+                      id,
+                      null,
+                      java.util.Map.of());
             });
   }
 

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.geometry.Insets?>
+<BorderPane xmlns:fx="http://javafx.com/fxml" fx:controller="za.co.onlinepos.desktop.customers.CustomersController" stylesheets="@accounts.css">
+    <top><VBox spacing="8" styleClass="page-header"><Label text="Customer accounts" styleClass="page-title"/><Label text="Manage customer contact details and delivery addresses" styleClass="muted"/><Label text="Preview — changes reset when the app closes" styleClass="preview"/></VBox></top>
+    <center><SplitPane dividerPositions="0.43">
+        <items>
+            <VBox spacing="12" minWidth="330" styleClass="panel">
+                <HBox spacing="10"><TextField fx:id="search" promptText="Search name, either phone or email" HBox.hgrow="ALWAYS"/><Button text="Add customer" onAction="#addCustomer" styleClass="primary"/></HBox>
+                <TableView fx:id="customers" VBox.vgrow="ALWAYS"/>
+                <Label fx:id="customerCount" styleClass="muted"/>
+            </VBox>
+            <StackPane minWidth="440" styleClass="panel">
+                <Label fx:id="noSelection" text="Select a customer to view their account" styleClass="muted"/>
+                <VBox fx:id="details" spacing="16" visible="false">
+                    <HBox alignment="CENTER_LEFT" spacing="12"><Label fx:id="customerName" styleClass="section-title" HBox.hgrow="ALWAYS"/><Button text="Edit profile" onAction="#editCustomer"/></HBox>
+                    <Label fx:id="contact" wrapText="true" styleClass="muted"/>
+                </VBox>
+            </StackPane>
+        </items>
+    </SplitPane></center>
+</BorderPane>

@@ -82,13 +82,25 @@ class LocalPostgresIT {
   @Autowired CommandJournal journal;
   @Autowired za.co.onlinepos.server.local.ModuleAccess modules;
   @Autowired za.co.onlinepos.server.local.AdministrationService administration;
+  @Autowired za.co.onlinepos.server.local.AuditService audit;
+  @Autowired za.co.onlinepos.server.local.AuditPolicyService auditPolicy;
   private static final String PIN_KEY = java.util.Base64.getEncoder().encodeToString(new byte[32]);
   private StaffService.Actor manager;
   private String token;
 
+  // Schema-owner-only disposable fixture reset, never an application API or runtime privilege.
+  private static void truncateAuditFixtures(String sql) {
+    ADMIN.execute("ALTER TABLE pos.audit_record DISABLE TRIGGER immutable_audit_truncate");
+    try {
+      ADMIN.execute(sql);
+    } finally {
+      ADMIN.execute("ALTER TABLE pos.audit_record ENABLE TRIGGER immutable_audit_truncate");
+    }
+  }
+
   @BeforeEach
   void fixture() {
-    ADMIN.execute(
+    truncateAuditFixtures(
         "TRUNCATE pos.catalogue_bootstrap,pos.staff,pos.staff_session,pos.catalog_item,pos.branch_price,pos.local_customer,pos.order_draft,pos.order_line,pos.order_line_extra,pos.payment_metadata,pos.command_receipt,pos.audit_record,pos.outbox_event,pos.inbox_receipt,pos.terminal_printer CASCADE");
     ADMIN.execute("TRUNCATE pos.pin_throttle,pos.rbac_role CASCADE");
     ADMIN.update("INSERT INTO pos.rbac_role VALUES (1,'MANAGER'),(1,'CASHIER')");
@@ -97,6 +109,9 @@ class LocalPostgresIT {
     ADMIN.update(
         "INSERT INTO pos.role_permission VALUES (1,'MANAGER','rbac.manage'),(1,'MANAGER','staff.manage'),(1,'CASHIER','module.sales_orders')");
     ADMIN.update("UPDATE pos.stream_head SET position=0");
+    ADMIN.update("UPDATE pos.audit_tracking_settings SET enabled=true");
+    ADMIN.update("UPDATE pos.audit_policy SET revision=0,updated_at=NULL,updated_by_owner_id=NULL");
+    ADMIN.update("DELETE FROM pos.audit_approval");
     DatabaseTool.bootstrap(OWNER, IDENTITY, "manager", PASSWORD.toCharArray());
     ADMIN.update(
         "INSERT INTO pos.catalog_item(item_id,branch_id,source_type,source_id,description,definition,definition_revision) VALUES (?,1,'TEST_FIXTURE','fixture','Test item','{}',0)",
@@ -178,7 +193,7 @@ class LocalPostgresIT {
                 "INSERT INTO pos.local_customer(customer_id,branch_id,display_name) VALUES (?,2,'wrong branch')",
                 UUID.randomUUID()));
     assertEquals(
-        5,
+        6,
         ADMIN.queryForObject(
             "SELECT count(*) FROM public.flyway_schema_history WHERE success", Integer.class));
     assertThrows(
@@ -971,7 +986,7 @@ class LocalPostgresIT {
     try {
       for (int branch : new int[] {1, 2}) {
         // Only the dedicated disposable test database is touched; rebind after removing fixtures.
-        ADMIN.execute("TRUNCATE pos.store_identity CASCADE");
+        truncateAuditFixtures("TRUNCATE pos.store_identity CASCADE");
         var identity =
             new LocalDatabase.Identity(branch, IDENTITY.clusterId(), IDENTITY.installationId());
         ADMIN.update(
@@ -1057,7 +1072,7 @@ class LocalPostgresIT {
                 .status());
       }
     } finally {
-      ADMIN.execute("TRUNCATE pos.store_identity CASCADE");
+      truncateAuditFixtures("TRUNCATE pos.store_identity CASCADE");
       ADMIN.update(
           "INSERT INTO pos.store_identity(branch_id,cluster_id,installation_id) VALUES (?,?,?)",
           IDENTITY.branchId(),
@@ -2237,5 +2252,454 @@ class LocalPostgresIT {
         TERMINAL,
         catalogueEdit(access, "menu_item", updated, catalogueValues(updated), false, false));
     assertEquals(2, editor.state(access, TERMINAL).path("revision").asLong());
+  }
+
+  private java.util.Map<String, Boolean> tracking(boolean enabled) {
+    var result = new java.util.TreeMap<String, Boolean>();
+    for (var type : za.co.onlinepos.contracts.Auditing.EventType.values())
+      if (type.optional()) result.put(type.name(), enabled);
+    return result;
+  }
+
+  @Test
+  void auditDefaultsClassificationAndImmutablePrivileges() {
+    for (var type : za.co.onlinepos.contracts.Auditing.EventType.values())
+      assertTrue(audit.isTrackingEnabled(type));
+    ADMIN.update("UPDATE pos.audit_tracking_settings SET enabled=false");
+    for (var type : za.co.onlinepos.contracts.Auditing.EventType.values()) {
+      UUID command = UUID.randomUUID();
+      audit.record(
+          manager.staffId(),
+          TERMINAL,
+          type.name(),
+          IDENTITY.clusterId(),
+          command,
+          java.util.Map.of("reason", "TEST"));
+      assertEquals(
+          type.optional() ? 0 : 1,
+          ADMIN.queryForObject(
+              "SELECT count(*) FROM pos.audit_record WHERE command_id=?", Integer.class, command));
+    }
+    for (String sql :
+        List.of(
+            "UPDATE pos.audit_record SET action='tampered'",
+            "DELETE FROM pos.audit_record",
+            "TRUNCATE pos.audit_record",
+            "UPDATE pos.audit_tracking_settings SET enabled=true",
+            "UPDATE pos.audit_policy SET revision=0"))
+      assertThrows(org.springframework.dao.DataAccessException.class, () -> runtime.execute(sql));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> ADMIN.execute("DELETE FROM pos.audit_record"));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> ADMIN.execute("TRUNCATE pos.audit_record"));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.execute(
+                "INSERT INTO pos.audit_record(audit_id,branch_id,actor_id,action,aggregate_id,details) VALUES(gen_random_uuid(),1,NULL,'STAFF_LOGIN',gen_random_uuid(),'{}')"));
+  }
+
+  @Test
+  void ownerApprovedPolicyIsVersionedIdempotentAndNeverContainsPin() throws Exception {
+    String access = adminToken(true);
+    var edit =
+        new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+            UUID.randomUUID(), 0, tracking(false), "012345");
+    var saved = auditPolicy.save(access, TERMINAL, edit);
+    assertEquals(1, saved.path("revision").asLong());
+    assertEquals(
+        saved,
+        auditPolicy.save(
+            access,
+            TERMINAL,
+            new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                edit.commandId(), 0, tracking(false), "")));
+    assertEquals(
+        1,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='AUDIT_SETTING_CHANGED'",
+            Integer.class));
+    assertEquals(
+        false,
+        ((java.util.Map<?, ?>) auditPolicy.settings(access, TERMINAL).get("settings"))
+            .get("DRAFT_CANCELLED"));
+    assertThrows(
+        LocalFailure.class,
+        () ->
+            auditPolicy.save(
+                access,
+                TERMINAL,
+                new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                    edit.commandId(), 0, tracking(true), "012345")));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            auditPolicy.save(
+                access,
+                TERMINAL,
+                new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                    UUID.randomUUID(), 0, tracking(true), "012345")));
+    assertEquals(
+        0,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE details::text LIKE '%012345%'",
+            Integer.class));
+    assertEquals(
+        0,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.command_receipt WHERE result::text LIKE '%012345%'",
+            Integer.class));
+    var freshService = new za.co.onlinepos.server.local.AuditService(runtime, json, IDENTITY);
+    assertFalse(
+        freshService.isTrackingEnabled(
+            za.co.onlinepos.contracts.Auditing.EventType.DRAFT_CANCELLED));
+    http.perform(get("/api/local/admin/audit/settings").header("Authorization", "Bearer " + access))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.revision").value(1));
+  }
+
+  @Test
+  void auditOwnerPinFailuresThrottleAndDirectRequestsCannotBypassApproval() throws Exception {
+    String access = adminToken(false);
+    for (int n = 0; n < 5; n++)
+      assertEquals(
+          401,
+          assertThrows(
+                  LocalFailure.class,
+                  () ->
+                      auditPolicy.save(
+                          access,
+                          TERMINAL,
+                          new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                              UUID.randomUUID(), 0, tracking(false), "012345")))
+              .status());
+    assertEquals(
+        429,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    auditPolicy.save(
+                        access,
+                        TERMINAL,
+                        new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                            UUID.randomUUID(), 0, tracking(false), "012345")))
+            .status());
+    assertEquals(
+        5,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='OWNER_PIN_FAILED'",
+            Integer.class));
+    assertEquals(
+        0,
+        ADMIN.queryForObject(
+            "SELECT revision FROM pos.audit_policy WHERE branch_id=1", Long.class));
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/admin/audit/settings")
+                .contentType("application/json")
+                .content(
+                    json.writeValueAsString(
+                        new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                            UUID.randomUUID(), 0, tracking(false), "012345"))))
+        .andExpect(status().isUnauthorized());
+    assertTrue(
+        ADMIN.queryForObject(
+                "SELECT count(*) FROM pos.audit_record WHERE action='AUDIT_ACCESS_REFUSED'",
+                Integer.class)
+            > 0);
+  }
+
+  @Test
+  void optionalHistoryNeverSuppressesBusinessReceiptsOrOutbox() {
+    String access = adminToken(true);
+    // PIN provisioning revokes the fixture password actor; reacquire it through the existing
+    // recovery login.
+    String recovery =
+        (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
+    var actor = staff.authenticate(recovery, TERMINAL);
+    auditPolicy.save(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+            UUID.randomUUID(), 0, tracking(false), "012345"));
+    var command = UUID.randomUUID();
+    var edit = new LocalCommands.PriceEdit(command, 0, new BigDecimal("37.00"), true);
+    var result = operations.price(actor, PRICE, edit);
+    assertEquals(result, operations.price(actor, PRICE, edit));
+    assertEquals(
+        new BigDecimal("37.00"),
+        ADMIN.queryForObject(
+            "SELECT amount FROM pos.branch_price WHERE price_id=?", BigDecimal.class, PRICE));
+    assertEquals(
+        0,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE command_id=?", Integer.class, command));
+    assertEquals(
+        1,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.outbox_event WHERE event_type='PRICE_CHANGED'",
+            Integer.class));
+    assertEquals(
+        1,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.command_receipt WHERE command_id=?", Integer.class, command));
+    auditPolicy.save(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+            UUID.randomUUID(), 1, tracking(true), "012345"));
+    var next = new LocalCommands.PriceEdit(UUID.randomUUID(), 1, new BigDecimal("38.00"), true);
+    operations.price(actor, PRICE, next);
+    assertEquals(
+        1,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='PRICE_CHANGED'", Integer.class));
+    assertTrue(
+        ADMIN
+            .queryForObject(
+                "SELECT details::text FROM pos.audit_record WHERE action='PRICE_CHANGED'",
+                String.class)
+            .contains("oldValues"));
+  }
+
+  @Test
+  void auditFailureRollsBackBusinessCommandAndOutbox() {
+    ADMIN.execute(
+        "CREATE FUNCTION pos.test_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='PRICE_CHANGED' THEN RAISE EXCEPTION 'test audit failure'; END IF; RETURN NEW; END $$");
+    ADMIN.execute(
+        "CREATE TRIGGER test_audit_failure BEFORE INSERT ON pos.audit_record FOR EACH ROW EXECUTE FUNCTION pos.test_audit_failure()");
+    UUID command = UUID.randomUUID();
+    try {
+      assertThrows(
+          org.springframework.dao.DataAccessException.class,
+          () ->
+              operations.price(
+                  manager,
+                  PRICE,
+                  new LocalCommands.PriceEdit(command, 0, new BigDecimal("99"), true)));
+      assertEquals(
+          new BigDecimal("25.50"),
+          ADMIN.queryForObject(
+              "SELECT amount FROM pos.branch_price WHERE price_id=?", BigDecimal.class, PRICE));
+      assertEquals(
+          0,
+          ADMIN.queryForObject(
+              "SELECT count(*) FROM pos.command_receipt WHERE command_id=?",
+              Integer.class,
+              command));
+      assertEquals(0, ADMIN.queryForObject("SELECT count(*) FROM pos.outbox_event", Integer.class));
+    } finally {
+      ADMIN.execute("DROP TRIGGER test_audit_failure ON pos.audit_record");
+      ADMIN.execute("DROP FUNCTION pos.test_audit_failure()");
+    }
+  }
+
+  @Test
+  void auditApprovalRejectsExpiredTamperedAndReplayedChangesAtDatabaseBoundary() {
+    String access = adminToken(true);
+    String initiator = CommandJournal.digest(access);
+    String fresh =
+        (String)
+            modules
+                .enterOwner(
+                    new za.co.onlinepos.server.local.ModuleAccess.Entry(
+                        "012345", za.co.onlinepos.contracts.PosModule.ADMINISTRATION),
+                    TERMINAL)
+                .get("token");
+    String proof = CommandJournal.digest(fresh);
+    UUID approval = UUID.randomUUID();
+    String values = journal.encode(tracking(false));
+    runtime.queryForObject(
+        "SELECT pos.issue_audit_approval(?,?,?,?,?::jsonb,?)",
+        Object.class,
+        approval,
+        initiator,
+        proof,
+        TERMINAL,
+        values,
+        0L);
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.apply_audit_policy(?,?,?,?,?::jsonb,?,?)",
+                Long.class,
+                approval,
+                initiator,
+                proof,
+                TERMINAL,
+                journal.encode(tracking(true)),
+                0L,
+                UUID.randomUUID()));
+    ADMIN.update(
+        "UPDATE pos.audit_approval SET expires_at=clock_timestamp()-interval '1 second' WHERE approval_id=?",
+        approval);
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.apply_audit_policy(?,?,?,?,?::jsonb,?,?)",
+                Long.class,
+                approval,
+                initiator,
+                proof,
+                TERMINAL,
+                values,
+                0L,
+                UUID.randomUUID()));
+    ADMIN.update(
+        "UPDATE pos.audit_approval SET expires_at=clock_timestamp()+interval '30 seconds' WHERE approval_id=?",
+        approval);
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT pos.apply_audit_policy(?,?,?,?,?::jsonb,?,?)",
+            Long.class,
+            approval,
+            initiator,
+            proof,
+            TERMINAL,
+            values,
+            0L,
+            UUID.randomUUID()));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.apply_audit_policy(?,?,?,?,?::jsonb,?,?)",
+                Long.class,
+                approval,
+                initiator,
+                proof,
+                TERMINAL,
+                values,
+                1L,
+                UUID.randomUUID()));
+    modules.discardApprovalSession(fresh);
+  }
+
+  @Test
+  void auditCursorDetailsSnapshotsRedactionAndDuplicateProtection() throws Exception {
+    ADMIN.update(
+        "INSERT INTO pos.role_permission VALUES(1,'MANAGER','audit.view') ON CONFLICT DO NOTHING");
+    String access = adminToken(true);
+    UUID command = UUID.randomUUID();
+    audit.record(
+        manager.staffId(),
+        TERMINAL,
+        "STAFF_CHANGED",
+        manager.staffId(),
+        command,
+        java.util.Map.of(
+            "changes",
+            java.util.Map.of("password", "hidden-password", "pin", "012345", "safe", "visible")));
+    audit.record(
+        manager.staffId(),
+        TERMINAL,
+        "STAFF_CHANGED",
+        manager.staffId(),
+        command,
+        java.util.Map.of(
+            "changes",
+            java.util.Map.of("password", "hidden-password", "pin", "012345", "safe", "visible")));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            audit.record(
+                manager.staffId(),
+                TERMINAL,
+                "STAFF_CHANGED",
+                manager.staffId(),
+                command,
+                java.util.Map.of("reason", "different")));
+    for (int n = 0; n < 55; n++)
+      audit.record(
+          manager.staffId(),
+          TERMINAL,
+          "STAFF_CHANGED",
+          manager.staffId(),
+          UUID.randomUUID(),
+          java.util.Map.of("reason", "PAGE_TEST"));
+    var search =
+        new za.co.onlinepos.server.local.AuditService.Search(
+            null, null, TERMINAL, "manager", null, "Security", "STAFF_CHANGED", "");
+    var page = audit.history(search);
+    assertEquals(50, ((List<?>) page.get("items")).size());
+    assertEquals(true, page.get("hasMore"));
+    var second =
+        audit.history(
+            new za.co.onlinepos.server.local.AuditService.Search(
+                null,
+                null,
+                TERMINAL,
+                "manager",
+                null,
+                "Security",
+                "STAFF_CHANGED",
+                (String) page.get("nextCursor")));
+    assertEquals(6, ((List<?>) second.get("items")).size());
+    UUID id =
+        ADMIN.queryForObject(
+            "SELECT audit_id FROM pos.audit_record WHERE command_id=?", UUID.class, command);
+    String details = json.writeValueAsString(audit.detail(id));
+    assertFalse(details.contains("hidden-password"));
+    assertFalse(details.contains("012345"));
+    http.perform(
+            get("/api/local/admin/audit/events/" + id).header("Authorization", "Bearer " + access))
+        .andExpect(status().isOk());
+    http.perform(
+            get("/api/local/admin/audit/events?category=Security&action=STAFF_CHANGED")
+                .header("Authorization", "Bearer " + access))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.length()").value(50));
+    assertEquals(
+        0,
+        ((List<?>)
+                audit
+                    .history(
+                        new za.co.onlinepos.server.local.AuditService.Search(
+                            null, null, "different-terminal", "", null, "", "", ""))
+                    .get("items"))
+            .size());
+    assertThrows(
+        LocalFailure.class,
+        () ->
+            audit.history(
+                new za.co.onlinepos.server.local.AuditService.Search(
+                    null, null, "", "", null, "", "", "invalid")));
+  }
+
+  @Test
+  void concurrentAuditPolicySavesHaveOneWinner() throws Exception {
+    String access = adminToken(true);
+    try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+      var tasks =
+          java.util.stream.IntStream.range(0, 2)
+              .mapToObj(
+                  n ->
+                      executor.submit(
+                          () -> {
+                            try {
+                              auditPolicy.save(
+                                  access,
+                                  TERMINAL,
+                                  new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                                      UUID.randomUUID(), 0, tracking(false), "012345"));
+                              return true;
+                            } catch (org.springframework.dao.DataAccessException conflict) {
+                              return false;
+                            }
+                          }))
+              .toList();
+      int success = 0;
+      for (var task : tasks) if (task.get()) success++;
+      assertEquals(1, success);
+      assertEquals(
+          1,
+          ADMIN.queryForObject(
+              "SELECT revision FROM pos.audit_policy WHERE branch_id=1", Long.class));
+    }
   }
 }

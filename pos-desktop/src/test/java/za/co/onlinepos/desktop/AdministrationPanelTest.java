@@ -187,7 +187,7 @@ class AdministrationPanelTest {
       if (method.equals("GET") && path.startsWith("staff?"))
         return tree(Map.of("items", staff, "hasMore", false, "page", 0));
       if (method.equals("GET") && path.equals("roles")) return tree(roles);
-      if (method.equals("GET") && path.startsWith("audit?"))
+      if (method.equals("GET") && path.startsWith("audit/events?"))
         return tree(
             Map.of(
                 "items",
@@ -195,7 +195,7 @@ class AdministrationPanelTest {
                     Map.of(
                         "occurredAt",
                         "2026-10-25T10:00:00Z",
-                        "actor",
+                        "staff",
                         "owner",
                         "action",
                         "ADMIN_STAFF_CHANGED",

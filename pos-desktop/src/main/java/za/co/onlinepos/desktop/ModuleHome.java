@@ -119,7 +119,12 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
         button.getStyleClass().add("module-tile");
         button.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
         button.setWrapText(true);
-        button.setOnAction(event -> prompt(module));
+        button.setOnAction(
+            event -> {
+              if (module == PosModule.SALES_ORDERS) openSales();
+              else if (gateway instanceof PreviewGateway) openPreview(module);
+              else prompt(module);
+            });
         final int index = i;
         button.setOnKeyPressed(
             event -> {
@@ -173,6 +178,21 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
                       up ? "Store connected" : "Store unavailable · check the Master connection");
               });
         });
+  }
+
+  private void openSales() {
+    if (pending || closed || token != null) return;
+    notice.setText("");
+    showModule(PosModule.SALES_ORDERS, null);
+  }
+
+  void openPreview(PosModule module) {
+    if (!(gateway instanceof PreviewGateway))
+      throw new IllegalStateException("Preview requires an isolated sample gateway");
+    token = "preview-only";
+    lastActivity = clock.getAsLong();
+    lastRefresh = lastActivity;
+    showModule(module, "Preview user — sample data only");
   }
 
   private void prompt(PosModule module) {
@@ -272,6 +292,21 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   }
 
   private void showModule(PosModule module, String username) {
+    if (module == PosModule.CUSTOMERS) {
+      try {
+        var page = za.co.onlinepos.desktop.customers.CustomersPage.load();
+        var back = new Button("Home / Lock");
+        back.setId("home-lock");
+        back.setOnAction(event -> lock(""));
+        var bar = new javafx.scene.layout.HBox(16, back, new Label("Staff: " + username));
+        bar.setPadding(new Insets(12, 24, 12, 24));
+        setTop(bar);
+        setCenter(page);
+      } catch (java.io.IOException failure) {
+        lock("Unable to open customer profiles.");
+      }
+      return;
+    }
     if (module == PosModule.CATALOGUE) {
       catalogue =
           new CataloguePanel(
@@ -297,7 +332,7 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
         new VBox(
             24,
             heading,
-            new Label("Staff: " + username),
+            new Label(username == null ? "Sales / Orders" : "Staff: " + username),
             new Label(
                 "This module is still being built. Operational functions are not yet available."),
             lock);

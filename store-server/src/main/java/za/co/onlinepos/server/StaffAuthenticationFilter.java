@@ -86,6 +86,14 @@ public final class StaffAuthenticationFilter extends OncePerRequestFilter {
                 new UsernamePasswordAuthenticationToken(
                     session.staffId(), null, List.of(new SimpleGrantedAuthority("POS_MODULE"))));
       } catch (LocalFailure failure) {
+        if (path.equals("/api/local/admin/audit/settings") && request.getMethod().equals("PUT")) {
+          try {
+            modules.deniedAuditSettings(terminal);
+          } catch (org.springframework.dao.DataAccessException unavailable) {
+            response.sendError(503);
+            return;
+          }
+        }
         response.sendError(failure.status());
         return;
       }

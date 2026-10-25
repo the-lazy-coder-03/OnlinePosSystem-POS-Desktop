@@ -202,6 +202,7 @@ public class CatalogueManagementService {
           var before = tables();
           var after = tables();
           var changed = new HashSet<String>();
+          var auditChanges = new java.util.ArrayList<Map<String, Object>>();
           var affected = new java.util.TreeSet<String>();
           for (var change : edit.changes()) {
             if (change == null || !editable(change.table()) || change.values() == null)
@@ -227,6 +228,8 @@ public class CatalogueManagementService {
             if (change.remove()) {
               if (original == null || !ASSIGNMENTS.contains(table))
                 throw new LocalFailure(400, "Deactivate this record instead");
+              auditChanges.add(
+                  Map.of("table", table, "oldValues", original, "newValues", Map.of()));
               continue;
             }
             var row = (ObjectNode) journal.tree(change.values());
@@ -244,6 +247,14 @@ public class CatalogueManagementService {
               throw new LocalFailure(400, "Record identity cannot change");
             affected.addAll(affectedRecipes(before, table, row));
             after.get(table).add(values(row));
+            auditChanges.add(
+                Map.of(
+                    "table",
+                    table,
+                    "oldValues",
+                    original == null ? Map.of() : original,
+                    "newValues",
+                    row));
           }
           if (!affected.isEmpty() && !edit.confirmSharedRecipe())
             throw new LocalFailure(
@@ -289,7 +300,13 @@ public class CatalogueManagementService {
                   "recordsChanged",
                   edit.changes().size());
           journal.event(
-              actor, "CATALOGUE_CHANGED", identity.clusterId(), next, edit.commandId(), safe);
+              actor,
+              "CATALOGUE_CHANGED",
+              identity.clusterId(),
+              next,
+              edit.commandId(),
+              safe,
+              Map.of("changes", auditChanges, "revision", next));
           return result;
         });
   }

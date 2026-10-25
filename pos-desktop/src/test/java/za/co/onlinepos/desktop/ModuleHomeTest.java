@@ -45,14 +45,14 @@ class ModuleHomeTest {
         () -> {
           try {
             result.complete(action.call());
-          } catch (Exception e) {
+          } catch (Exception | AssertionError e) {
             result.completeExceptionally(e);
           }
         });
     return result.get(15, TimeUnit.SECONDS);
   }
 
-  static final class Gateway extends ModuleGateway {
+  static class Gateway extends ModuleGateway {
     final CountDownLatch revoked = new CountDownLatch(1);
     final java.util.concurrent.atomic.AtomicInteger refusal =
         new java.util.concurrent.atomic.AtomicInteger(401);
@@ -95,7 +95,7 @@ class ModuleHomeTest {
   private void submit(ModuleHome home, String pin) throws Exception {
     fx(
         () -> {
-          ((Button) home.lookup("#module-SALES_ORDERS")).fire();
+          ((Button) home.lookup("#module-CASH")).fire();
           var dialog = dialog();
           var field = (PasswordField) dialog.lookup("#staff-pin");
           field.setText(pin);
@@ -118,6 +118,169 @@ class ModuleHomeTest {
       Thread.sleep(20);
     }
     fail("Desktop state transition timed out");
+  }
+
+  @Test
+  void salesOpensWithoutPinOrStaffSession() throws Exception {
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var installation =
+          new Installation(
+              1,
+              UUID.randomUUID(),
+              UUID.randomUUID(),
+              UUID.randomUUID(),
+              1,
+              InstallationRole.MASTER,
+              "Sales test",
+              "INSTALLED");
+      var gateway =
+          new Gateway() {
+            @Override
+            public JsonNode enter(PosModule module, char[] pin) {
+              fail("Opening Sales must not request a PIN session");
+              return null;
+            }
+          };
+      var home = fx(() -> new ModuleHome(installation, gateway, executor));
+      try {
+        fx(
+            () -> {
+              ((Button) home.lookup("#module-SALES_ORDERS")).fire();
+              assertNotNull(home.lookup("#home-lock"));
+              assertTrue(
+                  Window.getWindows().stream()
+                      .filter(Window::isShowing)
+                      .noneMatch(w -> w.getScene().getRoot() instanceof DialogPane));
+              ((Button) home.lookup("#home-lock")).fire();
+              assertNotNull(home.lookup("#module-grid"));
+              return null;
+            });
+      } finally {
+        fx(
+            () -> {
+              home.close();
+              return null;
+            });
+      }
+    }
+  }
+
+  @Test
+  void customersTileOpensProfilesAfterPinAndReturnsHome() throws Exception {
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var installation =
+          new Installation(
+              1,
+              UUID.randomUUID(),
+              UUID.randomUUID(),
+              UUID.randomUUID(),
+              1,
+              InstallationRole.MASTER,
+              "Customer test terminal",
+              "INSTALLED");
+      var home = fx(() -> new ModuleHome(installation, new Gateway(), executor));
+      var stage =
+          fx(
+              () -> {
+                var window = new Stage();
+                window.setScene(new Scene(home, 1200, 800));
+                window.show();
+                return window;
+              });
+      try {
+        fx(
+            () -> {
+              ((Button) home.lookup("#module-CUSTOMERS")).fire();
+              var pane = dialog();
+              ((PasswordField) pane.lookup("#staff-pin")).setText("012345");
+              var open =
+                  pane.getButtonTypes().stream()
+                      .filter(b -> b.getButtonData() == ButtonBar.ButtonData.OK_DONE)
+                      .findFirst()
+                      .orElseThrow();
+              ((Button) pane.lookupButton(open)).fire();
+              return null;
+            });
+        await(() -> home.lookup("#customers") != null);
+        fx(
+            () -> {
+              var customers = (javafx.scene.control.TableView<?>) home.lookup("#customers");
+              assertEquals(3, customers.getItems().size());
+              assertTrue(
+                  customers.getColumns().stream().anyMatch(c -> c.getText().equals("Address")));
+              ((Button) home.lookup("#home-lock")).fire();
+              assertNotNull(home.lookup("#module-CUSTOMERS"));
+              assertNull(home.lookup("#customers"));
+              return null;
+            });
+      } finally {
+        fx(
+            () -> {
+              home.close();
+              stage.close();
+              return null;
+            });
+      }
+    }
+  }
+
+  @Test
+  void previewTilesOpenWithoutPinAndReturnHome() throws Exception {
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var installation =
+          new Installation(
+              1,
+              UUID.randomUUID(),
+              UUID.randomUUID(),
+              UUID.randomUUID(),
+              1,
+              InstallationRole.MASTER,
+              "Sample preview",
+              "INSTALLED");
+      var home = fx(() -> new ModuleHome(installation, new PreviewGateway(), executor));
+      var stage =
+          fx(
+              () -> {
+                var window = new Stage();
+                window.setScene(new Scene(home, 1100, 800));
+                window.show();
+                return window;
+              });
+      try {
+        for (PosModule module : PosModule.values()) {
+          fx(
+              () -> {
+                ((Button) home.lookup("#module-" + module.name())).fire();
+                assertNotNull(home.lookup("#home-lock"));
+                home.applyCss();
+                home.layout();
+                if (module == PosModule.CUSTOMERS) {
+                  assertNotNull(home.lookup("#customers"));
+                  assertNotNull(home.lookup("#search"));
+                }
+                assertTrue(
+                    Window.getWindows().stream()
+                        .filter(Window::isShowing)
+                        .noneMatch(w -> w.getScene().getRoot() instanceof DialogPane));
+                return null;
+              });
+          if (module == PosModule.CATALOGUE) await(() -> home.lookup("#catalogue-list") != null);
+          fx(
+              () -> {
+                ((Button) home.lookup("#home-lock")).fire();
+                assertNotNull(home.lookup("#module-CUSTOMERS"));
+                return null;
+              });
+        }
+      } finally {
+        fx(
+            () -> {
+              home.close();
+              stage.close();
+              return null;
+            });
+      }
+    }
   }
 
   @Test
@@ -168,7 +331,7 @@ class ModuleHomeTest {
       try {
         fx(
             () -> {
-              ((Button) home.lookup("#module-SALES_ORDERS")).fire();
+              ((Button) home.lookup("#module-CASH")).fire();
               var pane = dialog();
               var field = (PasswordField) pane.lookup("#staff-pin");
               field.setText("012345");
