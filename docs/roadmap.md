@@ -1,7 +1,7 @@
 # Roadmap and stage gates
 
 Stages 3 and 4 are explicitly authorized by the user request on 25 October 2026. JavaFX uses Jakarta CDI/Weld SE; the separate backend retains Spring DI.
-Stage 3 local verification is complete. Stage 4 import round-trips passed for both branches from the user-provided local database. Windows acceptance, full quote processing and production cutover remain separate gates. Stop before Stage 5.
+Stage 3 local verification is complete. Stage 4 import round-trips passed for both branches from the user-provided local database. Windows Server CI and Windows 11 client checks passed. Interactive UAC, Windows 10/separate Windows Slave acceptance, full quote processing and production cutover remain separate gates. Stop before Stage 5.
 
 | Stage | Deliverable |
 | --- | --- |

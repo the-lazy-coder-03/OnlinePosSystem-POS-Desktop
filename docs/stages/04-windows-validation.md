@@ -1,7 +1,8 @@
 # Stage 3/4 Windows validation
 
 The user authorized continued Windows validation on 25 October 2026 and confirmed a disposable Windows
-PC/VM is available. Connection details are pending. Automated validation passed on an isolated
+PC/VM is available. SSH access was subsequently provided and Windows 11 client checks were executed; see
+`04-windows11-client-validation.md`. Automated validation passed on an isolated
 GitHub-hosted Windows runner; manual client UAC/reboot/LAN acceptance is separate.
 
 Validation branch: `codex/windows-stage4-validation`. It incorporates current main (including the existing
@@ -70,3 +71,18 @@ source database was modified by this validation. The validation branch has not b
 
 Rollback and manual client procedures remain in the linked checklist. Windows Server CI establishes the
 automated package/service results above; it does not close the pending client-specific release gates.
+
+## Windows 11 follow-up and corrected installer
+
+A real Windows 11 Pro build 26200 PC passed non-elevated bundled-runtime launch, Master provisioning,
+staff/catalogue/TLS checks, independent-account permission probes, encrypted backup, an explicitly approved
+OS reboot with automatic recovery, and data-preserving uninstall/reinstall. Interactive UAC dialogs were
+not observed and remain unverified. The tested LAN path uncovered a generated mDNS hostname/certificate
+mismatch, fixed by preferring the advertised IPv4 candidates without changing certificate verification.
+
+Corrected source: `18b29d0a0bc7a3832b209b5e9351987ce73d506f`.
+[Successful corrected CI run](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40190029128):
+48 Windows tests passed with zero skips/failures/errors, plus full package/provisioning checks.
+[Corrected installer](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40190029128/artifacts/12598285676).
+That corrected installer and installed normal-user discovery path were also verified on the PC.
+See `04-windows11-client-validation.md` for exact hashes, evidence boundaries, retained state and cleanup.

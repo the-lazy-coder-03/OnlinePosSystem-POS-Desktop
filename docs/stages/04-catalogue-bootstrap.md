@@ -142,3 +142,10 @@ The complete Windows Server 2025 CI run at tested commit c812696 passed all 45 t
 passed the installed-package catalogue import/replay/restart tests. See `04-windows-validation.md` for the
 run, artifacts, exact tested scope and remaining Windows 10/11 manual client gates. Earlier references to
 Windows skips in this report describe the macOS run and do not describe the subsequent Windows CI result.
+
+## Real Windows 11 client follow-up
+
+Windows 11 Pro build 26200 also passed installed catalogue import/replay, effective-price/source readback,
+service restart, real OS reboot recovery and data-preserving reinstall. A LAN discovery hostname mismatch
+was corrected and revalidated with pinned certificate/branch identity. The corrected CI run passed all
+48 Windows tests. See `04-windows11-client-validation.md` for exact scope and remaining client release gates.

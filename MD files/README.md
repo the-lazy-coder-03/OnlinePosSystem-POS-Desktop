@@ -35,3 +35,7 @@ Source-seed parity tests do not establish current production menu parity or auth
 
 Both branch imports were also tested against an isolated copy of the user-provided local catalogue.
 All source records and 478 price baselines matched; Windows and live cutover acceptance remain separate.
+
+[Windows 11 validation](../docs/stages/04-windows11-client-validation.md) covers real reboot/recovery,
+permissions, LAN discovery/TLS and preserved data after reinstall. The corrected CI run passed 48 Windows
+tests; interactive UAC, Windows 10 and a separate Windows Slave still need acceptance.

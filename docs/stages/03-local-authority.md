@@ -132,3 +132,12 @@ Windows CI run 40184668321 passed all 45 tests, including Windows credential/DPA
 protected staff bootstrap, real installed terminal TLS staff API, encrypted backup, and Master
 repair/uninstall/reinstall validation. See `04-windows-validation.md` for tested commit and artifacts.
 Windows 10/11 interactive UAC/reboot and separate-machine LAN acceptance remain pending.
+
+## Real Windows 11 follow-up
+
+The disposable Windows 11 Pro client subsequently passed protected Master installation/repair, real staff
+TLS APIs, encrypted backup, independent-account effective file permissions, an approved actual OS reboot
+with automatic recovery, LAN trust/discovery, and data-preserving uninstall/reinstall. Corrected CI passed
+48 Windows tests. See `04-windows11-client-validation.md` for tested packages, retained test-manager
+handover and cleanup. Interactive UAC dialogs were not observed; Windows 10 and an actual separate Windows
+Slave remain unverified. These results do not authorize sales or production rollout.

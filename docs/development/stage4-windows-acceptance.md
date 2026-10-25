@@ -9,7 +9,7 @@ catalogue fixtures rather than current store/customer data. No sale or cloud syn
 
 Use the private `windows-development-installer` artifact from the successful validation run recorded in
 `docs/stages/04-windows-validation.md`. Also download both test-evidence artifacts. On Windows, GitHub CLI
-users may use `gh run download 40184668321 --repo the-lazy-coder-03/OnlinePosSystem-POS-Desktop --name windows-development-installer`.
+users may use `gh run download 40190029128 --repo the-lazy-coder-03/OnlinePosSystem-POS-Desktop --name windows-development-installer`.
 Otherwise use that run's Artifacts section while signed in. Verify `Get-FileHash <installer.exe> -Algorithm
 SHA256` against `SHA256SUMS.txt`. These are unsigned development packages; production signing is separate.
 The installed desktop bundles Java/JavaFX and must launch without a separately installed JDK.
@@ -48,3 +48,12 @@ verify services are removed and retained database/key files remain. Revert the p
 when all test data is disposable. On any non-disposable installation, preserve verified backups and keys;
 never delete the database or restore an older snapshot over newer commands. Nothing in this procedure
 changes production cloud, enables sales/sync, or authorizes a live store rollout.
+
+## Recorded Windows 11 execution
+
+See `../stages/04-windows11-client-validation.md`. The available Windows 11 PC completed the automated
+client/service, token-based independent-account NTFS, actual reboot/recovery, LAN trust/discovery and
+uninstall/reinstall checks. The generic Result column above remains a reusable checklist, not a claim
+that every row was executed on every supported OS. Windows 10, a separate actual Windows Slave, interactive
+UAC consent/denial and a full keyboard/accessibility review remain unverified. The corrected package comes
+from run 40190029128 and includes the discovery fix found during this client validation.
