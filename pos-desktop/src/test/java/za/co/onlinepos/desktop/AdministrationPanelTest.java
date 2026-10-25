@@ -323,8 +323,11 @@ class AdministrationPanelTest {
                       .filter(r -> r.path("username").asText().equals(username))
                       .findFirst()
                       .orElseThrow());
+          view.panel.applyCss();
+          view.panel.layout();
           return null;
         });
+    await(() -> view.panel.lookup("#admin-staff-username") != null);
   }
 
   private DialogPane dialog() {

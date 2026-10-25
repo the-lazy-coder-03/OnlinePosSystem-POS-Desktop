@@ -1657,6 +1657,17 @@ class LocalPostgresIT {
                 "TEST_FILTER",
                 java.time.Instant.parse("2026-10-25T10:00:00Z"),
                 java.time.Instant.parse("2026-10-25T10:01:00Z")));
+    http.perform(
+            get("/api/local/admin/audit")
+                .header("Authorization", "Bearer " + access)
+                .param("actor", "manager")
+                .param("action", "TEST_FILTER")
+                .param("from", "2026-10-25T10:00:00Z")
+                .param("to", "2026-10-25T10:01:00Z")
+                .param("page", "0"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.length()").value(50))
+        .andExpect(jsonPath("$.hasMore").value(true));
     assertEquals(50, page0.path("items").size());
     assertTrue(page0.path("hasMore").asBoolean());
     assertEquals(3, page1.path("items").size());
