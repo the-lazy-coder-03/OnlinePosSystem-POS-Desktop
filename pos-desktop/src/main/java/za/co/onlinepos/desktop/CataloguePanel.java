@@ -26,7 +26,9 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TextInputControl;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
@@ -702,11 +704,15 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
       } else {
         String type = field.getValue().path("type").asText();
         boolean number = List.of("INT", "NUMERIC", "DOUBLE").contains(type);
-        var text =
-            new TextField(
-                value == null || value.isNull()
-                    ? number ? defaultNumber(column) : ""
-                    : value.asText());
+        String initial =
+            value == null || value.isNull() ? number ? defaultNumber(column) : "" : value.asText();
+        TextInputControl text;
+        if (column.equals("description")) {
+          var area = new TextArea(initial);
+          area.setPrefRowCount(3);
+          area.setWrapText(true);
+          text = area;
+        } else text = new TextField(initial);
         text.setPromptText(number ? "Number" : label(column));
         text.textProperty().addListener((o, a, b) -> changed());
         input = text;
@@ -786,7 +792,8 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
             else if (control instanceof ComboBox<?> select)
               value = select.getValue() == null ? null : ((Choice) select.getValue()).value();
             else {
-              String text = ((TextField) control).getText().strip();
+              String text = ((TextInputControl) control).getText();
+              if (!field.getKey().equals("description")) text = text.strip();
               String type =
                   state
                       .path("schema")
@@ -919,7 +926,7 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
         .values()
         .forEach(
             n -> {
-              if (n instanceof TextField text) text.clear();
+              if (n instanceof TextInputControl text) text.clear();
             });
     inputs.clear();
     form.getChildren().clear();

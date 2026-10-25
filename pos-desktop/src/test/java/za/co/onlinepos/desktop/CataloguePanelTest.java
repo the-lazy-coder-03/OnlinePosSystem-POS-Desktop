@@ -307,6 +307,8 @@ class CataloguePanelTest {
       fx(
           () -> {
             ((TextField) view.panel.lookup("#catalogue-field-name")).setText("Unconfirmed edit");
+            ((javafx.scene.control.TextArea) view.panel.lookup("#catalogue-field-description"))
+                .setText("First line\nSecond line");
             ((Button) view.panel.lookup("#catalogue-save")).fire();
             return null;
           });
@@ -325,6 +327,9 @@ class CataloguePanelTest {
                       .getText()
                       .contains("unconfirmed"));
       assertEquals(gateway.saves.get(0), gateway.saves.get(1));
+      assertEquals(
+          "First line\nSecond line",
+          gateway.saves.getFirst().changes().getFirst().values().get("description"));
       var field = fx(() -> (TextField) view.panel.lookup("#catalogue-field-name"));
       fx(
           () -> {
