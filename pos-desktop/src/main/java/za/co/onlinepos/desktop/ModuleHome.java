@@ -249,7 +249,7 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
                         grid.setDisable(false);
                         notice.setText(
                             failure instanceof TrustedStoreClient.ModuleFailure f
-                                    && f.status() != 503
+                                    && f.status() < 500
                                 ? (f.status() == 429
                                     ? "Too many attempts. Please wait before trying again."
                                     : "Access refused.")

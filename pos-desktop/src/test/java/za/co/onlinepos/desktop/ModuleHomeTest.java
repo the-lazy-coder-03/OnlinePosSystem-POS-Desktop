@@ -60,6 +60,8 @@ class ModuleHomeTest {
 
   static final class Gateway extends ModuleGateway {
     final CountDownLatch revoked = new CountDownLatch(1);
+    final java.util.concurrent.atomic.AtomicInteger refusal =
+        new java.util.concurrent.atomic.AtomicInteger(401);
 
     Gateway() {
       super(Path.of("unused-test-root"));
@@ -71,7 +73,8 @@ class ModuleHomeTest {
     @Override
     public JsonNode enter(PosModule module, char[] pin) throws Exception {
       try {
-        if (!new String(pin).equals("012345")) throw new TrustedStoreClient.ModuleFailure(401);
+        if (!new String(pin).equals("012345"))
+          throw new TrustedStoreClient.ModuleFailure(refusal.get());
         return JsonFiles.JSON.readTree("{\"token\":\"test-token\",\"username\":\"Test staff\"}");
       } finally {
         java.util.Arrays.fill(pin, '\0');
@@ -188,6 +191,21 @@ class ModuleHomeTest {
         await(
             () -> home.lookup("#module-grid") != null && !home.lookup("#module-grid").isDisabled());
         assertNull(fx(() -> home.lookup("#home-lock")));
+        gateway.refusal.set(403);
+        submit(home, "999999");
+        await(
+            () -> home.lookup("#module-grid") != null && !home.lookup("#module-grid").isDisabled());
+        gateway.refusal.set(500);
+        submit(home, "999999");
+        await(
+            () -> home.lookup("#module-grid") != null && !home.lookup("#module-grid").isDisabled());
+        assertTrue(
+            fx(
+                () ->
+                    home.lookupAll(".label").stream()
+                        .filter(javafx.scene.control.Label.class::isInstance)
+                        .map(javafx.scene.control.Label.class::cast)
+                        .anyMatch(label -> label.getText().contains("Unable to connect"))));
         submit(home, "012345");
         await(() -> home.lookup("#home-lock") != null);
         time.set(TimeUnit.MINUTES.toNanos(5) + 2);
@@ -213,6 +231,98 @@ class ModuleHomeTest {
               stage.close();
               return null;
             });
+      }
+    }
+  }
+
+  @Test
+  void startupRoutesConfiguredIncompleteAndNewTerminalsAndSetupCompletion() throws Exception {
+    try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+      var configured =
+          new Installation(
+              1,
+              UUID.randomUUID(),
+              UUID.randomUUID(),
+              UUID.randomUUID(),
+              2,
+              InstallationRole.SLAVE,
+              "Smoke terminal",
+              "INSTALLED");
+      var saved =
+          new java.util.concurrent.atomic.AtomicReference<java.util.Optional<Installation>>(
+              java.util.Optional.empty());
+      var presenter =
+          new za.co.onlinepos.desktop.setup.SetupPresenter(null, null, null, executor, null) {
+            @Override
+            public CompletableFuture<java.util.Optional<Installation>> currentInstallation() {
+              return CompletableFuture.completedFuture(saved.get());
+            }
+
+            @Override
+            public CompletableFuture<String> install(
+                za.co.onlinepos.installation.SetupRequest request, char[] password) {
+              java.util.Arrays.fill(password, '\0');
+              saved.set(java.util.Optional.of(configured));
+              return CompletableFuture.completedFuture("Test setup complete");
+            }
+          };
+      var shell = fx(() -> new DesktopShell(presenter, executor, false, false));
+      Stage startupWindow =
+          fx(
+              () -> {
+                var window = new Stage();
+                window.setScene(new Scene(shell, 1100, 800));
+                window.show();
+                return window;
+              });
+      try {
+        await(() -> shell.getCenter() instanceof SetupWizard);
+        fx(
+            () -> {
+              var wizard = (SetupWizard) shell.getCenter();
+              wizard.verifySmokeScenario();
+              shell.applyCss();
+              shell.layout();
+              var field =
+                  wizard.lookupAll(".password-field").stream()
+                      .map(PasswordField.class::cast)
+                      .findFirst()
+                      .orElseThrow();
+              field.setText(UUID.randomUUID().toString());
+              wizard.lookupAll(".button").stream()
+                  .filter(Button.class::isInstance)
+                  .map(Button.class::cast)
+                  .filter(b -> b.getText().equals("Install / resume setup"))
+                  .findFirst()
+                  .orElseThrow()
+                  .fire();
+              return null;
+            });
+        await(() -> shell.getCenter() instanceof ModuleHome);
+      } finally {
+        fx(
+            () -> {
+              shell.close();
+              startupWindow.close();
+              return null;
+            });
+      }
+      for (String state : java.util.List.of("INSTALLED", "PROVISIONING")) {
+        saved.set(java.util.Optional.of(configured.withState(state)));
+        var restarted = fx(() -> new DesktopShell(presenter, executor, false, false));
+        try {
+          await(
+              () ->
+                  state.equals("INSTALLED")
+                      ? restarted.getCenter() instanceof ModuleHome
+                      : restarted.getCenter() instanceof SetupWizard);
+        } finally {
+          fx(
+              () -> {
+                restarted.close();
+                return null;
+              });
+        }
       }
     }
   }

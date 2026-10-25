@@ -81,7 +81,8 @@ permission receive a generic denial and no session.
 Run the installed `C:\Program Files\OnlinePOS\setup\Local-Database.ps1` from an elevated PowerShell.
 Every operation below verifies the installation administrator; SetPin then reads the new PIN through
 masked console input. Do not place secrets in command arguments. Staff must already exist; the existing
-BootstrapStaff command remains the initial manager-creation/recovery path.
+BootstrapStaff command remains the initial manager-creation path. Existing password authentication
+remains available independently of PIN entry.
 
 ```powershell
 & 'C:\Program Files\OnlinePOS\setup\Local-Database.ps1' -Operation SetPin -Username manager
@@ -103,7 +104,8 @@ architecture boundaries and 20 local PostgreSQL scenarios plus a V2-to-V3 upgrad
 entry/leading zeros/logout, HTTP boundaries, duplicate PINs, multiple additive roles, denial, disablement,
 role/permission revocation, expiry, durable terminal/branch throttling, legacy staff-management enforcement and final-administrator safety.
 GUI tests (`POS_TEST_FX=true`) exercise the actual JavaFX grid, cancellation, PIN clearing, refusal,
-success, Home / Lock and the inactivity timeout with a controlled clock. Their rendered screenshot is
+success, Home / Lock, the inactivity timeout with a controlled clock, configured/incomplete/new startup
+routing and transition from successful setup into the grid. Their rendered screenshot is
 `pos-desktop/target/module-home.png`. Platform-specific tests remain separate on non-Windows hosts.
 
 The Windows workflow enables GUI tests, packages both setup and home-grid smoke paths, and exercises
