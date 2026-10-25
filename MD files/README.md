@@ -41,7 +41,7 @@ permissions, LAN discovery/TLS and preserved data after reinstall. The corrected
 tests; interactive UAC, Windows 10 and a separate Windows Slave still need acceptance.
 
 Stage 5 increment 1 adds the [module home grid and PIN/RBAC access](../docs/stages/05-module-home.md).
-Configured terminals open the grid; module shells remain unfinished and cannot accept sales.
+Configured terminals open the grid; accepted sales remain unavailable.
 
 Stage 5 increment 2 implements [Administration staff and access](../docs/stages/05-administration.md):
 a sidebar for Overview, Staff, Roles & Permissions and Audit History, with a separately designated owner

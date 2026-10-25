@@ -52,6 +52,17 @@ Local PostgreSQL tests cover all editable families, creation and generated ident
 
 JavaFX tests cover navigation, editable and read-only forms, unsaved-change cancellation, named references, shared-recipe confirmation, unchanged-save retry, compact layout, configured home→Catalogue navigation and inactivity clearing. Tests capture local previews under `pos-desktop/target/catalogue-*.png`.
 
-Windows package validation extends the installed TLS smoke probe to explicitly provision a catalogue editor role, create an ingredient, edit an item, replay the create command, reject a read-only write and cross-module request, and verify persistence after service restart. Local validation passed: 79 tests, zero failures/errors, with only two Windows-only tests skipped on macOS. All ten JavaFX interaction tests (including four catalogue tests) ran locally. Formatting, static analysis, architecture checks, isolated Windows probe compilation and source secret scanning passed. CI evidence will be recorded after the final Windows run.
+Windows package validation extends the installed TLS smoke probe to explicitly provision a catalogue editor role, create an ingredient, edit an item, replay the create command, reject a read-only write and cross-module request, and verify persistence after service restart. Local validation passed: 79 tests, zero failures/errors, with only two Windows-only tests skipped on macOS. All ten JavaFX interaction tests (including four catalogue tests) ran locally. Formatting, static analysis, architecture checks, isolated Windows probe compilation and source secret scanning passed. The final [Windows/Linux CI run](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40234933117) passed at source revision `5171d1ec71785fd5c36721b0c1b41e43e97c55b3`:
+
+| Environment | Tests | Failures / errors | Skipped |
+| --- | ---: | ---: | ---: |
+| Windows | 79 | 0 / 0 | 0 |
+| Linux | 79 | 0 / 0 | 12 (GUI and Windows-only) |
+
+The secret scan passed. The installed package emitted `PACKAGED_MODULE_HOME_OK`, and emitted `WINDOWS_CATALOGUE_ITEMS_INGREDIENTS_CRUD_TLS_OK` both before and after service restart. Administration regression checks, encrypted backup and `WINDOWS_MASTER_UNINSTALL_REINSTALL_PRESERVED_DATA_OK` also passed. Numeric-field regression coverage verifies canonical floating/scientific representations are displayed as editable whole integers and plain decimal prices, including unchanged display-order and size saves. Multiline descriptions and cancelled-filter restoration are also covered.
+
+Artifacts: [development installer](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40234933117/artifacts/12614896644), [Windows reports](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40234933117/artifacts/12614772099), [Linux reports](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40234933117/artifacts/12614652404). Later evidence/documentation commits do not change the tested application source. See the [changed-file inventory](stage5-catalogue-changed-files.txt) relative to the preceding Administration increment.
+
+The disposable local PostgreSQL cluster and its protected test credentials were removed after verification.
 
 Stocktaking, purchasing, stock deduction, accepted sales, shared sales-screen editing, specials editing/publishing and cloud synchronization are outside this increment. Windows hosted-runner package checks do not establish physical touchscreen usability, live-store cutover readiness or manual Windows 10 acceptance.

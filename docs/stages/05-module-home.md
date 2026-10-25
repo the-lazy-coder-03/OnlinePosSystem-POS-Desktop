@@ -1,6 +1,6 @@
 # Stage 5, increment 1: module home and PIN access
 
-Administration is now implemented in [increment 2](05-administration.md); this report records the original home-grid increment.
+Administration is now implemented in [increment 2](05-administration.md), followed by [Catalogue Management](05-catalogue-management.md); this report records the original home-grid increment.
 
 Authorized by the user's module-home implementation request on 25 October 2026. This increment does
 not complete Stage 5 sales functionality. It does not deploy to a store, modify the cloud database,

@@ -1,0 +1,26 @@
+Stage 5 catalogue management — changed files relative to a8f7642
+MD files/README.md
+docs/roadmap.md
+docs/stages/05-administration.md
+docs/stages/05-catalogue-management.md
+docs/stages/05-module-home.md
+docs/stages/stage5-catalogue-changed-files.txt
+integration-tests/src/test/java/za/co/onlinepos/integration/LocalPostgresIT.java
+integration-tests/src/test/java/za/co/onlinepos/integration/RbacUpgradeIT.java
+pos-contracts/src/main/java/za/co/onlinepos/contracts/CatalogueManagement.java
+pos-desktop/src/main/java/za/co/onlinepos/desktop/AdministrationPanel.java
+pos-desktop/src/main/java/za/co/onlinepos/desktop/CataloguePanel.java
+pos-desktop/src/main/java/za/co/onlinepos/desktop/ModuleGateway.java
+pos-desktop/src/main/java/za/co/onlinepos/desktop/ModuleHome.java
+pos-desktop/src/test/java/za/co/onlinepos/desktop/CataloguePanelTest.java
+pos-installation/src/main/java/za/co/onlinepos/installation/TrustedStoreClient.java
+store-server/src/main/java/za/co/onlinepos/server/FoundationSecurity.java
+store-server/src/main/java/za/co/onlinepos/server/StaffAuthenticationFilter.java
+store-server/src/main/java/za/co/onlinepos/server/catalogue/CatalogueImport.java
+store-server/src/main/java/za/co/onlinepos/server/catalogue/CatalogueManagementEndpoints.java
+store-server/src/main/java/za/co/onlinepos/server/catalogue/CatalogueManagementService.java
+store-server/src/main/java/za/co/onlinepos/server/local/AdministrationService.java
+store-server/src/main/java/za/co/onlinepos/server/local/LocalOperations.java
+store-server/src/main/java/za/co/onlinepos/server/local/RbacProvisioning.java
+store-server/src/main/resources/db/migration/V5__catalogue_management.sql
+tools/WindowsStaffSmoke.java

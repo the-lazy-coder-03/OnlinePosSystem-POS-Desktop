@@ -1,7 +1,7 @@
 # Roadmap and stage gates
 
 Stages 3 and 4 are explicitly authorized by the user request on 25 October 2026. JavaFX uses Jakarta CDI/Weld SE; the separate backend retains Spring DI.
-Stage 3 local verification is complete. Stage 4 import round-trips passed for both branches from the user-provided local database. Windows Server CI and Windows 11 client checks passed. Interactive UAC, Windows 10/separate Windows Slave acceptance, full quote processing and production cutover remain separate gates. The user has now authorized Stage 5 increment 1: the module home grid and PIN/RBAC access. The user subsequently authorized increment 2: the Administration staff/access panel. Other operational module content and the shared sales-screen builder remain subsequent work.
+Stage 3 local verification is complete. Stage 4 import round-trips passed for both branches from the user-provided local database. Windows Server CI and Windows 11 client checks passed. Interactive UAC, Windows 10/separate Windows Slave acceptance, full quote processing and production cutover remain separate gates. The user has now authorized Stage 5 increment 1: the module home grid and PIN/RBAC access. The user subsequently authorized increment 2: the Administration staff/access panel. Catalogue Management now adds local items, ingredients, recipes, options and prices as the next authorized increment. Accepted sales, other operational module content and the shared sales-screen builder remain subsequent work.
 
 | Stage | Deliverable |
 | --- | --- |
