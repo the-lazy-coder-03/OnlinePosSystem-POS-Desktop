@@ -1,0 +1,22 @@
+MD files/README.md
+docs/architecture/contracts.md
+docs/development/stage4-import.md
+docs/roadmap.md
+docs/stages/03-local-authority.md
+docs/stages/04-catalogue-bootstrap.md
+integration-tests/src/test/java/za/co/onlinepos/integration/LocalPostgresIT.java
+integration-tests/src/test/resources/catalogue-source-fixture.json
+integration-tests/src/test/resources/cloud-seed-branch1.json
+integration-tests/src/test/resources/cloud-seed-branch2.json
+pos-contracts/src/main/java/za/co/onlinepos/contracts/CatalogueSnapshot.java
+store-server/src/main/java/za/co/onlinepos/server/CatalogueExport.java
+store-server/src/main/java/za/co/onlinepos/server/FoundationSecurity.java
+store-server/src/main/java/za/co/onlinepos/server/StaffAuthenticationFilter.java
+store-server/src/main/java/za/co/onlinepos/server/StoreServerApplication.java
+store-server/src/main/java/za/co/onlinepos/server/catalogue/CatalogueEndpoints.java
+store-server/src/main/java/za/co/onlinepos/server/catalogue/CatalogueImport.java
+store-server/src/main/java/za/co/onlinepos/server/catalogue/SnapshotFormat.java
+store-server/src/main/java/za/co/onlinepos/server/local/LocalEndpoints.java
+store-server/src/main/java/za/co/onlinepos/server/local/LocalErrors.java
+store-server/src/main/resources/catalogue-schema-v1.json
+store-server/src/main/resources/db/migration/V2__catalogue_bootstrap.sql

@@ -12,6 +12,10 @@ import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServic
     })
 public class StoreServerApplication {
   public static void main(String[] args) throws Exception {
+    if (args.length == 3 && args[0].equals("--catalogue-export")) {
+      CatalogueExport.main(new String[] {args[1], args[2]});
+      return;
+    }
     if (java.util.Arrays.stream(args).anyMatch(arg -> arg.startsWith("--database-tool="))) {
       DatabaseTool.main(args);
       return;

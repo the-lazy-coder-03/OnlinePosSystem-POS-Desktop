@@ -38,7 +38,9 @@ import za.co.onlinepos.server.local.LocalFailure;
 import za.co.onlinepos.server.local.LocalOperations;
 import za.co.onlinepos.server.local.StaffService;
 
-@SpringBootTest(classes = StoreServerApplication.class)
+@SpringBootTest(
+    classes = StoreServerApplication.class,
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @ActiveProfiles("local-store")
 @EnabledIfEnvironmentVariable(named = "POS_TEST_DATABASE_URL", matches = ".+/pos_stage3_test")
@@ -71,6 +73,7 @@ class LocalPostgresIT {
   }
 
   @Autowired MockMvc http;
+  @Autowired org.springframework.boot.test.web.client.TestRestTemplate realHttp;
   @Autowired ObjectMapper json;
   @Autowired JdbcTemplate runtime;
   @Autowired LocalOperations operations;
@@ -82,7 +85,7 @@ class LocalPostgresIT {
   @BeforeEach
   void fixture() {
     ADMIN.execute(
-        "TRUNCATE pos.staff,pos.staff_session,pos.catalog_item,pos.branch_price,pos.local_customer,pos.order_draft,pos.order_line,pos.order_line_extra,pos.payment_metadata,pos.command_receipt,pos.audit_record,pos.outbox_event,pos.inbox_receipt,pos.terminal_printer CASCADE");
+        "TRUNCATE pos.catalogue_bootstrap,pos.staff,pos.staff_session,pos.catalog_item,pos.branch_price,pos.local_customer,pos.order_draft,pos.order_line,pos.order_line_extra,pos.payment_metadata,pos.command_receipt,pos.audit_record,pos.outbox_event,pos.inbox_receipt,pos.terminal_printer CASCADE");
     ADMIN.update("UPDATE pos.stream_head SET position=0");
     DatabaseTool.bootstrap(OWNER, IDENTITY, "manager", PASSWORD.toCharArray());
     ADMIN.update(
@@ -95,6 +98,39 @@ class LocalPostgresIT {
     token =
         (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
     manager = staff.authenticate(token, TERMINAL);
+  }
+
+  @Test
+  void realServletErrorsPreserveAuthenticationAndPermissionStatusCodes() {
+    assertEquals(
+        401, realHttp.getForEntity("/api/local/menu", String.class).getStatusCode().value());
+    var headers = new org.springframework.http.HttpHeaders();
+    headers.setBearerAuth(token);
+    var request = new org.springframework.http.HttpEntity<Void>(headers);
+    assertEquals(
+        200,
+        realHttp
+            .exchange(
+                "/api/local/menu", org.springframework.http.HttpMethod.GET, request, String.class)
+            .getStatusCode()
+            .value());
+    assertEquals(
+        403,
+        realHttp
+            .exchange(
+                "/api/local/branches/2/menu",
+                org.springframework.http.HttpMethod.GET,
+                request,
+                String.class)
+            .getStatusCode()
+            .value());
+    assertEquals(
+        403,
+        realHttp
+            .exchange(
+                "/api/local/orders", org.springframework.http.HttpMethod.GET, request, String.class)
+            .getStatusCode()
+            .value());
   }
 
   @Test
@@ -132,7 +168,7 @@ class LocalPostgresIT {
                 "INSERT INTO pos.local_customer(customer_id,branch_id,display_name) VALUES (?,2,'wrong branch')",
                 UUID.randomUUID()));
     assertEquals(
-        1,
+        2,
         ADMIN.queryForObject(
             "SELECT count(*) FROM public.flyway_schema_history WHERE success", Integer.class));
     assertThrows(
@@ -568,6 +604,103 @@ class LocalPostgresIT {
     assertEquals(200, call.apply(bound, true));
     assertEquals(401, call.apply(token, true));
     assertEquals(403, call.apply(bound, false));
+    // Exercise the complete installed-style filter chain over real TLS, not only MockMvc.
+    var serverKey = za.co.onlinepos.installation.Certificates.keyPair();
+    var serverCertificate =
+        za.co.onlinepos.installation.Certificates.issue(
+            "localhost",
+            serverKey.getPublic(),
+            ca,
+            caKey.getPrivate(),
+            false,
+            false,
+            List.of("localhost"));
+    String storePassword = UUID.randomUUID().toString();
+    var serverStore = directory.resolve("server.p12");
+    java.nio.file.Files.write(
+        serverStore,
+        za.co.onlinepos.installation.Certificates.store(
+            serverKey.getPrivate(), serverCertificate, ca, storePassword.toCharArray()));
+    var trustStore = directory.resolve("trust.p12");
+    java.nio.file.Files.write(
+        trustStore,
+        za.co.onlinepos.installation.Certificates.store(
+            null, null, ca, storePassword.toCharArray()));
+    var properties = new java.util.HashMap<String, Object>();
+    properties.put("server.port", 0);
+    properties.put("server.address", "127.0.0.1");
+    properties.put("server.ssl.enabled", true);
+    properties.put("server.ssl.client-auth", "want");
+    properties.put("server.ssl.key-store", serverStore.toUri().toString());
+    properties.put("server.ssl.key-store-password", storePassword);
+    properties.put("server.ssl.trust-store", trustStore.toUri().toString());
+    properties.put("server.ssl.trust-store-password", storePassword);
+    properties.put("pos.database.url", System.getenv("POS_TEST_DATABASE_URL"));
+    properties.put("pos.database.password", System.getenv("POS_TEST_RUNTIME_PASSWORD"));
+    properties.put("pos.branch-id", 1);
+    properties.put("pos.cluster-id", IDENTITY.clusterId().toString());
+    properties.put("pos.installation-id", IDENTITY.installationId().toString());
+    properties.put("pos.development-terminal", "");
+    var application =
+        new org.springframework.boot.builder.SpringApplicationBuilder(StoreServerApplication.class)
+            .profiles("local-store")
+            .initializers(
+                context -> {
+                  context
+                      .getEnvironment()
+                      .getPropertySources()
+                      .addFirst(
+                          new org.springframework.core.env.MapPropertySource(
+                              "trusted-lan-test", properties));
+                  context.getBeanFactory().registerSingleton("terminalRegistry", registry);
+                });
+    var clientKeys = java.security.KeyStore.getInstance("PKCS12");
+    clientKeys.load(
+        new java.io.ByteArrayInputStream(
+            za.co.onlinepos.installation.Certificates.store(
+                key.getPrivate(), certificate, ca, storePassword.toCharArray())),
+        storePassword.toCharArray());
+    var keyManagers =
+        javax.net.ssl.KeyManagerFactory.getInstance(
+            javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm());
+    keyManagers.init(clientKeys, storePassword.toCharArray());
+    var trust = java.security.KeyStore.getInstance("PKCS12");
+    trust.load(
+        new java.io.ByteArrayInputStream(java.nio.file.Files.readAllBytes(trustStore)),
+        storePassword.toCharArray());
+    var trustManagers =
+        javax.net.ssl.TrustManagerFactory.getInstance(
+            javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
+    trustManagers.init(trust);
+    var tls = javax.net.ssl.SSLContext.getInstance("TLS");
+    tls.init(keyManagers.getKeyManagers(), trustManagers.getTrustManagers(), null);
+    try (var context = application.run();
+        var client = java.net.http.HttpClient.newBuilder().sslContext(tls).build()) {
+      int port =
+          ((org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext)
+                  context)
+              .getWebServer()
+              .getPort();
+      var base = java.net.URI.create("https://localhost:" + port);
+      var login =
+          java.net.http.HttpRequest.newBuilder(base.resolve("/api/local/auth/login"))
+              .header("Content-Type", "application/json")
+              .POST(
+                  java.net.http.HttpRequest.BodyPublishers.ofString(
+                      json.writeValueAsString(new StaffService.Login("manager", PASSWORD))))
+              .build();
+      var httpsReply = client.send(login, java.net.http.HttpResponse.BodyHandlers.ofString());
+      assertEquals(200, httpsReply.statusCode(), "Enrolled TLS terminal must be able to log in");
+      String staffToken = json.readTree(httpsReply.body()).get("token").asText();
+      var request =
+          java.net.http.HttpRequest.newBuilder(base.resolve("/api/local/menu"))
+              .header("Authorization", "Bearer " + staffToken)
+              .GET()
+              .build();
+      assertEquals(
+          200,
+          client.send(request, java.net.http.HttpResponse.BodyHandlers.discarding()).statusCode());
+    }
     registry.revoke(terminal);
     assertEquals(403, call.apply(bound, true));
   }
@@ -596,5 +729,322 @@ class LocalPostgresIT {
         new String(child.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
     assertTrue(child.waitFor(30, java.util.concurrent.TimeUnit.SECONDS));
     assertEquals(0, child.exitValue(), output);
+  }
+
+  @Autowired za.co.onlinepos.server.catalogue.CatalogueImport catalogue;
+
+  private za.co.onlinepos.contracts.CatalogueSnapshot snapshot(int branch) throws Exception {
+    var format = new za.co.onlinepos.server.catalogue.SnapshotFormat();
+    java.util.Map<String, java.util.List<java.util.Map<String, Object>>> tables;
+    try (var input = getClass().getResourceAsStream("/catalogue-source-fixture.json")) {
+      tables = json.readValue(input, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+    }
+    tables
+        .values()
+        .forEach(
+            rows ->
+                rows.forEach(
+                    row -> {
+                      if (row.containsKey("branch_id")) row.put("branch_id", branch);
+                    }));
+    tables.get("branch").getFirst().put("name", branch == 1 ? "Kenridge" : "Uitzicht");
+    var initial =
+        new za.co.onlinepos.contracts.CatalogueSnapshot(
+            1,
+            UUID.randomUUID(),
+            branch,
+            format.SOURCE,
+            "2026-10-25T10:00:00Z",
+            format.POLICY,
+            tables,
+            java.util.Map.of(),
+            java.util.Map.of());
+    return new za.co.onlinepos.contracts.CatalogueSnapshot(
+        1,
+        initial.snapshotId(),
+        branch,
+        initial.sourceRevision(),
+        initial.capturedAt(),
+        initial.pricingPolicy(),
+        tables,
+        format.counts(initial),
+        format.hashes(initial));
+  }
+
+  private void emptyCatalogue() {
+    ADMIN.execute("TRUNCATE pos.catalogue_bootstrap,pos.catalog_item,pos.branch_price CASCADE");
+  }
+
+  @Test
+  void catalogueImportsEverySourceTableAndExactPriceBaselinesWithSafeReplay() throws Exception {
+    emptyCatalogue();
+    var format = new za.co.onlinepos.server.catalogue.SnapshotFormat();
+    var snapshot = snapshot(1);
+    var command =
+        new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+            UUID.randomUUID(), format.fingerprint(snapshot), snapshot);
+    var result = catalogue.apply(manager, 1, command);
+    assertEquals("LOCAL", result.get("priceAuthority").asText());
+    assertEquals(result, catalogue.apply(manager, 1, command));
+    assertEquals(
+        result,
+        catalogue.apply(
+            manager,
+            1,
+            new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+                UUID.randomUUID(), command.expectedSha256(), snapshot)));
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.outbox_event WHERE event_type='CATALOGUE_BOOTSTRAPPED'",
+            Integer.class));
+    assertEquals(9, runtime.queryForObject("SELECT count(*) FROM pos.branch_price", Integer.class));
+    var read = catalogue.catalogue(1);
+    assertEquals(format.tree(snapshot), read.get("snapshot"));
+    assertEquals(31, read.get("snapshot").get("tables").size());
+    assertEquals(
+        new BigDecimal("85.50"),
+        runtime.queryForObject(
+            "SELECT p.amount FROM pos.branch_price p JOIN pos.catalog_item c USING(item_id) WHERE c.source_type='branch_pizza_price'",
+            BigDecimal.class));
+    assertEquals(
+        new BigDecimal("110.00"),
+        runtime.queryForObject(
+            "SELECT p.amount FROM pos.branch_price p JOIN pos.catalog_item c USING(item_id) WHERE c.source_type='special'",
+            BigDecimal.class));
+    UUID price =
+        za.co.onlinepos.server.catalogue.CatalogueImport.stable(
+            1, "price", "branch_pizza_price", "[1,1,1]");
+    operations.price(
+        manager,
+        price,
+        new LocalCommands.PriceEdit(UUID.randomUUID(), 0, new BigDecimal("90.00"), true));
+    catalogue.apply(manager, 1, command);
+    assertEquals(
+        new BigDecimal("90.00"),
+        runtime.queryForObject(
+            "SELECT amount FROM pos.branch_price WHERE price_id=?", BigDecimal.class, price));
+    var different = snapshot(1);
+    assertEquals(
+        409,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    catalogue.apply(
+                        manager,
+                        1,
+                        new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+                            UUID.randomUUID(), format.fingerprint(different), different)))
+            .status());
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> runtime.update("UPDATE pos.catalogue_bootstrap SET sha256='bad'"));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.update("INSERT INTO pos.catalog_item SELECT * FROM pos.catalog_item LIMIT 1"));
+    http.perform(get("/api/local/branches/1/catalogue").header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk());
+    http.perform(get("/api/local/branches/2/catalogue").header("Authorization", "Bearer " + token))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void catalogueRejectsCorruptionForeignBranchesAndExistingDataWithoutMutation() throws Exception {
+    var format = new za.co.onlinepos.server.catalogue.SnapshotFormat();
+    var snapshot = snapshot(1);
+    var command =
+        new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+            UUID.randomUUID(), format.fingerprint(snapshot), snapshot);
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> catalogue.apply(manager, 1, command));
+    assertEquals(
+        0, runtime.queryForObject("SELECT count(*) FROM pos.catalogue_bootstrap", Integer.class));
+    emptyCatalogue();
+    var foreign = snapshot(2);
+    format.validate(foreign); // both branch contracts validate independently
+    assertEquals(
+        403,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    catalogue.apply(
+                        manager,
+                        1,
+                        new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+                            UUID.randomUUID(), format.fingerprint(foreign), foreign)))
+            .status());
+    assertEquals(
+        400,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    catalogue.apply(
+                        manager,
+                        1,
+                        new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+                            UUID.randomUUID(), "0".repeat(64), snapshot)))
+            .status());
+    snapshot.tables().get("menu_item").getFirst().put("category_id", 999);
+    assertThrows(IllegalArgumentException.class, () -> format.validate(snapshot));
+    var invalid = snapshot(1);
+    invalid.tables().get("branch_pizza_price").getFirst().put("price", new BigDecimal("12.001"));
+    assertThrows(ArithmeticException.class, () -> format.validate(invalid));
+    var missing = snapshot(1);
+    missing.tables().remove("special_day");
+    assertThrows(IllegalArgumentException.class, () -> format.validate(missing));
+    assertEquals(
+        0, runtime.queryForObject("SELECT count(*) FROM pos.catalogue_bootstrap", Integer.class));
+    assertEquals(0, runtime.queryForObject("SELECT count(*) FROM pos.outbox_event", Integer.class));
+  }
+
+  @Test
+  void catalogueRequiresManagerAndRollsBackEverythingWhenOutboxFails() throws Exception {
+    emptyCatalogue();
+    var format = new za.co.onlinepos.server.catalogue.SnapshotFormat();
+    var snapshot = snapshot(1);
+    var command =
+        new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+            UUID.randomUUID(), format.fingerprint(snapshot), snapshot);
+    var cashier =
+        new StaffService.Actor(
+            manager.staffId(), "CASHIER", manager.terminal(), manager.credentialVersion());
+    assertEquals(
+        403, assertThrows(LocalFailure.class, () -> catalogue.apply(cashier, 1, command)).status());
+    http.perform(
+            post("/api/local/branches/1/catalogue/bootstrap")
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(command)))
+        .andExpect(status().isUnauthorized());
+    ADMIN.execute(
+        "ALTER TABLE pos.outbox_event ADD CONSTRAINT stage4_failure CHECK(event_type<>'CATALOGUE_BOOTSTRAPPED')");
+    try {
+      assertThrows(
+          org.springframework.dao.DataAccessException.class,
+          () -> catalogue.apply(manager, 1, command));
+      assertEquals(
+          0, runtime.queryForObject("SELECT count(*) FROM pos.catalogue_bootstrap", Integer.class));
+      assertEquals(
+          0, runtime.queryForObject("SELECT count(*) FROM pos.catalog_item", Integer.class));
+      assertEquals(
+          0, runtime.queryForObject("SELECT count(*) FROM pos.branch_price", Integer.class));
+      assertEquals(
+          0, runtime.queryForObject("SELECT count(*) FROM pos.command_receipt", Integer.class));
+      assertEquals(
+          0, runtime.queryForObject("SELECT position FROM pos.stream_head", Integer.class));
+    } finally {
+      ADMIN.execute("ALTER TABLE pos.outbox_event DROP CONSTRAINT stage4_failure");
+    }
+    http.perform(
+            post("/api/local/branches/1/catalogue/bootstrap")
+                .header("Authorization", "Bearer " + token)
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(command)))
+        .andExpect(status().isOk());
+  }
+
+  @Autowired org.springframework.transaction.support.TransactionTemplate transactions;
+
+  @Test
+  void sourceSeedSnapshotsForBothBranchesRoundTripWithExactEffectivePrices() throws Exception {
+    var format = new za.co.onlinepos.server.catalogue.SnapshotFormat();
+    try {
+      for (int branch : new int[] {1, 2}) {
+        // Only the dedicated disposable test database is touched; rebind after removing fixtures.
+        ADMIN.execute("TRUNCATE pos.store_identity CASCADE");
+        var identity =
+            new LocalDatabase.Identity(branch, IDENTITY.clusterId(), IDENTITY.installationId());
+        ADMIN.update(
+            "INSERT INTO pos.store_identity(branch_id,cluster_id,installation_id) VALUES (?,?,?)",
+            branch,
+            identity.clusterId(),
+            identity.installationId());
+        ADMIN.update("INSERT INTO pos.stream_head(branch_id) VALUES (?)", branch);
+        DatabaseTool.bootstrap(OWNER, identity, "manager", PASSWORD.toCharArray());
+        var actor =
+            new StaffService.Actor(
+                ADMIN.queryForObject("SELECT staff_id FROM pos.staff", UUID.class),
+                "MANAGER",
+                TERMINAL,
+                0);
+        var branchJournal = new CommandJournal(runtime, transactions, json, identity);
+        var importer =
+            new za.co.onlinepos.server.catalogue.CatalogueImport(runtime, branchJournal, identity);
+        za.co.onlinepos.contracts.CatalogueSnapshot snapshot;
+        String externalSnapshots = System.getenv("POS_TEST_CATALOGUE_SNAPSHOT_DIR");
+        String filename = "cloud-seed-branch" + branch + ".json";
+        try (var input =
+            externalSnapshots == null
+                ? getClass().getResourceAsStream("/" + filename)
+                : java.nio.file.Files.newInputStream(
+                    java.nio.file.Path.of(externalSnapshots).resolve(filename))) {
+          snapshot = json.readValue(input, za.co.onlinepos.contracts.CatalogueSnapshot.class);
+        }
+        format.validate(snapshot);
+        var command =
+            new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+                UUID.randomUUID(), format.fingerprint(snapshot), snapshot);
+        importer.apply(actor, branch, command);
+        assertEquals(format.tree(snapshot), importer.catalogue(branch).get("snapshot"));
+        int expected = 0;
+        for (var entry :
+            java.util.Map.of(
+                    "branch_menu_item_price",
+                    "price",
+                    "branch_pizza_price",
+                    "price",
+                    "branch_extra_price",
+                    "price",
+                    "branch_pizza_base_option_price",
+                    "price",
+                    "branch_burger_component_price",
+                    "price",
+                    "modifier_option",
+                    "additional_price",
+                    "salad_ingredients",
+                    "price",
+                    "special",
+                    "bundle_price",
+                    "special_addon",
+                    "price")
+                .entrySet()) {
+          for (var row : format.rows(snapshot, entry.getKey())) {
+            UUID price =
+                za.co.onlinepos.server.catalogue.CatalogueImport.stable(
+                    branch, "price", entry.getKey(), format.key(entry.getKey(), row));
+            assertEquals(
+                0,
+                za.co.onlinepos.server.catalogue.SnapshotFormat.money(row.get(entry.getValue()))
+                    .compareTo(
+                        runtime.queryForObject(
+                            "SELECT amount FROM pos.branch_price WHERE price_id=? AND branch_id=?",
+                            BigDecimal.class,
+                            price,
+                            branch)));
+            expected++;
+          }
+        }
+        if (externalSnapshots == null) assertEquals(branch == 1 ? 241 : 237, expected);
+        else assertTrue(expected > 0, "External snapshot must contain priced records");
+        assertEquals(
+            expected,
+            runtime.queryForObject("SELECT count(*) FROM pos.branch_price", Integer.class));
+        assertEquals(
+            1, runtime.queryForObject("SELECT count(*) FROM pos.outbox_event", Integer.class));
+        assertEquals(
+            403,
+            assertThrows(LocalFailure.class, () -> importer.catalogue(branch == 1 ? 2 : 1))
+                .status());
+      }
+    } finally {
+      ADMIN.execute("TRUNCATE pos.store_identity CASCADE");
+      ADMIN.update(
+          "INSERT INTO pos.store_identity(branch_id,cluster_id,installation_id) VALUES (?,?,?)",
+          IDENTITY.branchId(),
+          IDENTITY.clusterId(),
+          IDENTITY.installationId());
+      ADMIN.update("INSERT INTO pos.stream_head(branch_id) VALUES (1)");
+    }
   }
 }

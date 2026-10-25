@@ -47,6 +47,8 @@ public class FoundationSecurity {
       return http.authorizeHttpRequests(
               requests ->
                   requests
+                      .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR)
+                      .permitAll()
                       .requestMatchers(HttpMethod.GET, "/api/local/health")
                       .permitAll()
                       .requestMatchers(HttpMethod.POST, "/api/local/setup/pair")
@@ -61,6 +63,8 @@ public class FoundationSecurity {
                           "/api/local/auth/me",
                           "/api/local/auth/logout",
                           "/api/local/branches/*/menu",
+                          "/api/local/branches/*/catalogue",
+                          "/api/local/branches/*/catalogue/bootstrap",
                           "/api/local/branches/*/prices/*",
                           "/api/local/branches/*/drafts",
                           "/api/local/branches/*/drafts/*",
@@ -78,6 +82,8 @@ public class FoundationSecurity {
     return http.authorizeHttpRequests(
             requests ->
                 requests
+                    .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR)
+                    .permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/local/health")
                     .permitAll()
                     .anyRequest()

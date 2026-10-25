@@ -60,7 +60,8 @@ public final class StaffAuthenticationFilter extends OncePerRequestFilter {
     }
     if ((List.of("POST", "PUT", "PATCH").contains(request.getMethod())
             && request.getContentLengthLong() < 0)
-        || request.getContentLengthLong() > 65536) {
+        || request.getContentLengthLong()
+            > (path.matches("/api/local/branches/[12]/catalogue/bootstrap") ? 16777216 : 65536)) {
       response.sendError(413);
       return;
     }
