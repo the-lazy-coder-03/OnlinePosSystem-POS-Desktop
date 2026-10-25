@@ -454,7 +454,7 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
   private String display(String table, JsonNode row) {
     for (String name : List.of("name", "ingredient_name"))
       if (row.hasNonNull(name)) return row.get(name).asText();
-    if (table.equals("pizza_size")) return row.path("cm").asText() + " cm";
+    if (table.equals("pizza_size")) return row.path("cm").longValue() + " cm";
     var parts = new ArrayList<String>();
     state
         .path("schema")
@@ -482,7 +482,17 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     if (row.has("active")) parts.add(row.path("active").asBoolean() ? "Active" : "Inactive");
     for (String field :
         List.of("price", "additional_price", "default_qty", "component_type", "description"))
-      if (row.hasNonNull(field)) parts.add(label(field) + ": " + row.get(field).asText());
+      if (row.hasNonNull(field))
+        parts.add(
+            label(field)
+                + ": "
+                + fieldText(
+                    field.equals("default_qty")
+                        ? "INT"
+                        : field.equals("price") || field.equals("additional_price")
+                            ? "NUMERIC"
+                            : "TEXT",
+                    row.get(field)));
     return String.join(" · ", parts);
   }
 
@@ -645,7 +655,9 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
             new Label(
                 spec.path("references").has(column) && value != null && !value.isNull()
                     ? referenceLabel(spec.path("references").get(column), value)
-                    : value == null || value.isNull() ? "—" : value.asText());
+                    : value == null || value.isNull()
+                        ? "—"
+                        : fieldText(field.getValue().path("type").asText(), value));
         ((Label) input).setWrapText(true);
       } else if (spec.path("references").has(column)) {
         var ref = spec.path("references").get(column);
@@ -699,7 +711,9 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
         String type = field.getValue().path("type").asText();
         boolean number = List.of("INT", "NUMERIC", "DOUBLE").contains(type);
         String initial =
-            value == null || value.isNull() ? number ? defaultNumber(column) : "" : value.asText();
+            value == null || value.isNull()
+                ? number ? defaultNumber(column) : ""
+                : fieldText(type, value);
         TextInputControl text;
         if (column.equals("description")) {
           var area = new TextArea(initial);
@@ -747,6 +761,14 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
       form.getChildren()
           .add(new Label("Read-only. Catalogue editing permission is required to make changes."));
     populating = false;
+  }
+
+  private String fieldText(String type, JsonNode value) {
+    return switch (type) {
+      case "INT" -> Long.toString(value.longValue());
+      case "NUMERIC", "DOUBLE" -> value.decimalValue().setScale(2).toPlainString();
+      default -> value.asText();
+    };
   }
 
   private String defaultNumber(String column) {

@@ -80,6 +80,9 @@ class CataloguePanelTest {
               Files.readString(
                   Path.of(
                       "../integration-tests/src/test/resources/catalogue-source-fixture.json")));
+      // Canonical HTTP responses may encode integer multiples of ten as floating tokens.
+      ((ObjectNode) tables.path("menu_item").get(0)).put("sort_order", 10.0);
+      ((ObjectNode) tables.path("pizza_size").get(0)).put("cm", 30.0);
       state = JsonFiles.JSON.createObjectNode();
       state.put("revision", 0).put("branchId", 1).put("editable", editable);
       state.set("schema", schema);
@@ -243,6 +246,8 @@ class CataloguePanelTest {
       fx(
           () -> {
             assertTrue(((ToggleButton) view.panel.lookup("#catalogue-items")).isSelected());
+            assertEquals(
+                "10", ((TextField) view.panel.lookup("#catalogue-field-sort_order")).getText());
             ((TextField) view.panel.lookup("#catalogue-field-name")).setText("Changed item");
             answer(ButtonType.CANCEL);
             ((TextField) view.panel.lookup("#catalogue-search")).setText("unapplied filter");
@@ -306,6 +311,15 @@ class CataloguePanelTest {
             assertNotNull(view.panel.lookup("#catalogue-field-min_select"));
             return null;
           });
+      choose(view, "Pizza sizes");
+      select(view);
+      fx(
+          () -> {
+            assertEquals("30", ((TextField) view.panel.lookup("#catalogue-field-cm")).getText());
+            ((Button) view.panel.lookup("#catalogue-save")).fire();
+            return null;
+          });
+      await(() -> gateway.saves.size() == 2);
     }
   }
 
@@ -339,6 +353,7 @@ class CataloguePanelTest {
                       .getText()
                       .contains("unconfirmed"));
       assertEquals(gateway.saves.get(0), gateway.saves.get(1));
+      assertEquals(10L, gateway.saves.getFirst().changes().getFirst().values().get("sort_order"));
       assertEquals(
           "First line\nSecond line",
           gateway.saves.getFirst().changes().getFirst().values().get("description"));
