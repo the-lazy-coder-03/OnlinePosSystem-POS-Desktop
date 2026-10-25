@@ -3,6 +3,8 @@ package za.co.onlinepos.server;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
 
 @SpringBootApplication(
     exclude = {
@@ -10,7 +12,12 @@ import org.springframework.boot.autoconfigure.security.servlet.UserDetailsServic
       org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration.class,
       org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration.class
     })
-public class StoreServerApplication {
+public class StoreServerApplication extends SpringBootServletInitializer {
+  @Override
+  protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+    return application.sources(StoreServerApplication.class);
+  }
+
   public static void main(String[] args) throws Exception {
     if (args.length == 3 && args[0].equals("--catalogue-export")) {
       CatalogueExport.main(new String[] {args[1], args[2]});
