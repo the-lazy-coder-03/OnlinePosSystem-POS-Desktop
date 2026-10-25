@@ -63,7 +63,9 @@ public class FoundationSecurity {
                       .requestMatchers(
                           "/api/local/modules/me",
                           "/api/local/modules/activity",
-                          "/api/local/modules/logout")
+                          "/api/local/modules/logout",
+                          "/api/local/admin/**",
+                          "/api/local/catalogue/**")
                       .hasAuthority("POS_MODULE")
                       .requestMatchers(
                           "/api/local/menu",

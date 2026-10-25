@@ -23,3 +23,17 @@
 
 .module-icon { -fx-fill: transparent; -fx-stroke: #173a5e; -fx-stroke-width: 1.7; -fx-stroke-line-cap: round; -fx-stroke-line-join: round; }
 .module-tile .label { -fx-text-fill: #173a5e; -fx-font-size: 20px; -fx-font-weight: bold; }
+
+.admin-panel { -fx-background-color: #f3f6fa; }
+.admin-sidebar { -fx-background-color: #17324f; -fx-padding: 20px 12px; }
+.admin-nav { -fx-background-color: transparent; -fx-text-fill: #e5edf7; -fx-alignment: center-left; -fx-font-weight: bold; -fx-padding: 16px 14px; -fx-background-radius: 7px; }
+.admin-nav:hover { -fx-background-color: #274a70; }
+.admin-nav:selected { -fx-background-color: #dbeafe; -fx-text-fill: #14395e; }
+.admin-nav:focused { -fx-border-color: #81b7ff; -fx-border-width: 2px; -fx-border-radius: 7px; }
+.admin-section-title { -fx-font-size: 23px; -fx-font-weight: bold; -fx-text-fill: #17324f; }
+.admin-warning { -fx-background-color: #fff3cd; -fx-padding: 16px; -fx-background-radius: 7px; }
+.admin-panel .table-view { -fx-background-radius: 8px; -fx-border-color: #d8e1eb; }
+.admin-panel .check-box { -fx-padding: 4px 0; }
+.admin-panel .scroll-pane { -fx-background-color: transparent; }
+
+.admin-panel .label { -fx-wrap-text: true; }

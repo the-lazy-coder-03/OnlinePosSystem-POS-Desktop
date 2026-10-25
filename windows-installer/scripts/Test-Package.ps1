@@ -130,6 +130,7 @@ try{
  # Bootstrap staff through the protected owner console, then call the real installed TLS API.
  $staffPassword=([guid]::NewGuid()).ToString()
  $staffPin=([Math]::Abs(([guid]::NewGuid()).GetHashCode() % 1000000)).ToString('D6')
+ do{$cashierPin=([Math]::Abs(([guid]::NewGuid()).GetHashCode() % 1000000)).ToString('D6')}while($cashierPin -eq $staffPin)
  try {
   $powershell=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
   $databaseScript=Join-Path $program 'setup\Local-Database.ps1'
@@ -137,11 +138,13 @@ try{
   if($LASTEXITCODE -ne 0){throw 'Protected staff bootstrap failed'}
   Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation SetPin -Username ci.manager -PasswordStdin') -InputLines @($password,$staffPin)
   if($LASTEXITCODE -ne 0){throw 'Protected PIN provisioning failed'}
+  Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation SetOwner -Username ci.manager -PasswordStdin') -InputLines @($password)
+  if($LASTEXITCODE -ne 0){throw 'Protected owner designation failed'}
   $classes=Join-Path $out 'stage3-test-client';New-Item $classes -ItemType Directory -Force|Out-Null
   $clientPath=Join-Path $program 'desktop\app\*'
   & (Join-Path $env:JAVA_HOME 'bin\javac.exe') -cp $clientPath -d $classes (Join-Path $root 'tools\WindowsStaffSmoke.java')
   if($LASTEXITCODE -ne 0){throw 'Cannot compile the isolated test client'}
-  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" "'+(Join-Path $root 'store-server\src\main\resources\catalogue-schema-v1.json')+'"') -InputLines @($staffPassword,$staffPin)
+  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" "'+(Join-Path $root 'store-server\src\main\resources\catalogue-schema-v1.json')+'"') -InputLines @($staffPassword,$staffPin,$cashierPin)
   if($LASTEXITCODE -ne 0){throw 'Installed staff TLS API failed'}
   Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation Backup -PasswordStdin') -InputLines @($password)
   if($LASTEXITCODE -ne 0 -or -not(Get-ChildItem (Join-Path $data 'backups') -Filter '*.dpapi')){throw 'Protected encrypted backup failed'}
@@ -149,7 +152,7 @@ try{
   Restart-Service OnlinePOSStore
   & (Join-Path $program 'desktop\runtime\bin\java.exe') -cp $clientPath za.co.onlinepos.installation.SetupTool pair-local
   if($LASTEXITCODE -ne 0){throw 'Restarted Master readiness failed'}
-  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" "'+(Join-Path $root 'store-server\src\main\resources\catalogue-schema-v1.json')+'" --verify-catalogue') -InputLines @($staffPassword,$staffPin)
+  Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" "'+(Join-Path $root 'store-server\src\main\resources\catalogue-schema-v1.json')+'" --verify-catalogue') -InputLines @($staffPassword,$staffPin,$cashierPin)
 
  }finally{$staffPassword=$null}
  Write-Output 'WINDOWS_MASTER_INSTALL_REPAIR_GRANTS_FIREWALL_OK' 

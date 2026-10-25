@@ -38,6 +38,7 @@ public class ModuleAccess {
       long credentialVersion) {}
 
   private final JdbcTemplate jdbc;
+  private final AuditService audit;
   private final TransactionTemplate transactions;
   private final LocalDatabase.Identity identity;
   private final String key;
@@ -49,6 +50,8 @@ public class ModuleAccess {
       LocalDatabase.Identity identity,
       Environment env) {
     this.jdbc = jdbc;
+    this.audit =
+        new AuditService(jdbc, new com.fasterxml.jackson.databind.ObjectMapper(), identity);
     this.transactions = transactions;
     this.identity = identity;
     key = env.getProperty("pos.pin-key", "");
@@ -71,13 +74,18 @@ public class ModuleAccess {
   public Set<String> permissions(UUID staff) {
     return new TreeSet<>(
         jdbc.queryForList(
-            "SELECT DISTINCT p.permission FROM pos.staff_role r JOIN pos.role_permission p ON p.branch_id=r.branch_id AND p.role_name=r.role_name WHERE r.branch_id=? AND r.staff_id=?",
-            String.class,
-            identity.branchId(),
-            staff));
+            "SELECT pos.admin_permissions(?,?)", String.class, identity.branchId(), staff));
   }
 
   public Map<String, Object> enter(Entry request, String terminal) {
+    return enter(request, terminal, false);
+  }
+
+  public Map<String, Object> enterOwner(Entry request, String terminal) {
+    return enter(request, terminal, true);
+  }
+
+  private Map<String, Object> enter(Entry request, String terminal, boolean ownerOnly) {
     if (key.isBlank()) throw new LocalFailure(503, "PIN access has not been provisioned");
     if (request.module() == null) throw new LocalFailure(400, "Module required");
     char[] pin = request.pin() == null ? new char[0] : request.pin().toCharArray();
@@ -104,9 +112,28 @@ public class ModuleAccess {
                 var row = rows.isEmpty() ? null : rows.getFirst();
                 boolean valid =
                     Passwords.matches(pin, row == null ? dummy : (String) row.get("hash"));
-                if (!valid || row == null || !Boolean.TRUE.equals(row.get("enabled"))) {
+                boolean designatedOwner =
+                    row != null
+                        && jdbc.queryForObject(
+                                "SELECT count(*) FROM pos.store_owner WHERE branch_id=? AND staff_id=?",
+                                Integer.class,
+                                identity.branchId(),
+                                row.get("staff_id"))
+                            == 1;
+                if (!valid
+                    || row == null
+                    || !Boolean.TRUE.equals(row.get("enabled"))
+                    || (ownerOnly && !designatedOwner)) {
                   fail("branch", 30);
                   fail("terminal:" + terminal, 5);
+                  if (ownerOnly)
+                    audit.record(
+                        null,
+                        terminal,
+                        "OWNER_PIN_FAILED",
+                        identity.clusterId(),
+                        null,
+                        Map.of("reason", "INVALID_OWNER_CREDENTIAL"));
                   return Map.<String, Object>of("failure", 401);
                 }
                 UUID staff = (UUID) row.get("staff_id");
@@ -122,13 +149,33 @@ public class ModuleAccess {
                 String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
                 jdbc.update("DELETE FROM pos.module_session WHERE expires_at<clock_timestamp()");
                 jdbc.update(
-                    "INSERT INTO pos.module_session VALUES (?,?,?,?,?,?,clock_timestamp()+interval '5 minutes')",
+                    "INSERT INTO pos.module_session(token_hash,branch_id,staff_id,terminal_identity,module,credential_version,expires_at) VALUES (?,?,?,?,?,?,clock_timestamp()+interval '5 minutes')",
                     CommandJournal.digest(token),
                     identity.branchId(),
                     staff,
                     terminal,
                     request.module().name(),
                     row.get("credential_version"));
+                if (ownerOnly)
+                  jdbc.update(
+                      "UPDATE pos.module_session SET owner_verified_at=clock_timestamp() WHERE token_hash=?",
+                      CommandJournal.digest(token));
+                if (ownerOnly)
+                  audit.record(
+                      staff,
+                      terminal,
+                      "OWNER_PIN_SUCCEEDED",
+                      staff,
+                      null,
+                      Map.of("reason", "OWNER_IDENTITY_VERIFIED"));
+                if (!ownerOnly)
+                  audit.record(
+                      staff,
+                      terminal,
+                      "STAFF_LOGIN",
+                      staff,
+                      null,
+                      Map.of("module", request.module().name()));
                 return Map.<String, Object>of(
                     "token",
                     token,
@@ -149,6 +196,27 @@ public class ModuleAccess {
     } finally {
       Arrays.fill(pin, '\0');
     }
+  }
+
+  public void deniedAuditSettings(String terminal) {
+    transactions.executeWithoutResult(
+        status -> {
+          jdbc.queryForObject(
+              "SELECT position FROM pos.stream_head WHERE branch_id=? FOR UPDATE",
+              Long.class,
+              identity.branchId());
+          String scope = "audit-denied:" + terminal;
+          lockScope(scope);
+          if (locked(scope)) return;
+          fail(scope, 5);
+          audit.record(
+              null,
+              terminal,
+              "AUDIT_ACCESS_REFUSED",
+              identity.clusterId(),
+              null,
+              Map.of("reason", "INVALID_SESSION"));
+        });
   }
 
   private void lockScope(String scope) {
@@ -208,7 +276,33 @@ public class ModuleAccess {
         ((Number) row.get("credential_version")).longValue());
   }
 
-  public void logout(String token) {
+  public void discardApprovalSession(String token) {
     jdbc.update("DELETE FROM pos.module_session WHERE token_hash=?", CommandJournal.digest(token));
+  }
+
+  public void logout(String token) {
+    transactions.executeWithoutResult(
+        status -> {
+          jdbc.queryForObject(
+              "SELECT position FROM pos.stream_head WHERE branch_id=? FOR UPDATE",
+              Long.class,
+              identity.branchId());
+          var rows =
+              jdbc.queryForList(
+                  "SELECT staff_id,terminal_identity FROM pos.module_session WHERE token_hash=? AND branch_id=?",
+                  CommandJournal.digest(token),
+                  identity.branchId());
+          if (!rows.isEmpty()) {
+            var row = rows.getFirst();
+            audit.record(
+                (UUID) row.get("staff_id"),
+                (String) row.get("terminal_identity"),
+                "STAFF_LOGOUT",
+                (UUID) row.get("staff_id"),
+                null,
+                Map.of());
+            discardApprovalSession(token);
+          }
+        });
   }
 }

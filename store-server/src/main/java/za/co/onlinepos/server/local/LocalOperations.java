@@ -55,6 +55,21 @@ public class LocalOperations {
         "PRICE_CHANGED",
         Map.of("priceId", priceId, "edit", edit),
         () -> {
+          if (jdbc.queryForObject(
+                  "SELECT count(*) FROM pos.catalogue_version WHERE branch_id=?",
+                  Integer.class,
+                  identity.branchId())
+              != 0)
+            throw new LocalFailure(
+                403, "Use Catalogue Management to edit imported catalogue prices");
+          var prior =
+              jdbc.queryForList(
+                  "SELECT amount,available,revision FROM pos.branch_price WHERE branch_id=? AND price_id=?",
+                  identity.branchId(),
+                  priceId);
+          if (prior.isEmpty())
+            throw new LocalFailure(409, "Price is missing or its revision changed");
+          var oldValues = prior.getFirst();
           int changed =
               jdbc.update(
                   "UPDATE pos.branch_price SET amount=?,available=?,revision=revision+1 WHERE branch_id=? AND price_id=? AND revision=?",
@@ -80,7 +95,8 @@ public class LocalOperations {
               priceId,
               edit.expectedRevision() + 1,
               edit.commandId(),
-              result);
+              result,
+              Map.of("oldValues", oldValues, "newValues", result));
           return journal.tree(result);
         });
   }

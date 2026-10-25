@@ -1,5 +1,7 @@
 # Stage 5, increment 1: module home and PIN access
 
+Administration is now implemented in [increment 2](05-administration.md), followed by [Catalogue Management](05-catalogue-management.md); this report records the original home-grid increment.
+
 Authorized by the user's module-home implementation request on 25 October 2026. This increment does
 not complete Stage 5 sales functionality. It does not deploy to a store, modify the cloud database,
 enable sales, or implement the shared sales-screen builder.
@@ -81,7 +83,8 @@ permission receive a generic denial and no session.
 Run the installed `C:\Program Files\OnlinePOS\setup\Local-Database.ps1` from an elevated PowerShell.
 Every operation below verifies the installation administrator; SetPin then reads the new PIN through
 masked console input. Do not place secrets in command arguments. Staff must already exist; the existing
-BootstrapStaff command remains the initial manager-creation/recovery path.
+BootstrapStaff command remains the initial manager-creation path. Existing password authentication
+remains available independently of PIN entry.
 
 ```powershell
 & 'C:\Program Files\OnlinePOS\setup\Local-Database.ps1' -Operation SetPin -Username manager
@@ -103,7 +106,8 @@ architecture boundaries and 20 local PostgreSQL scenarios plus a V2-to-V3 upgrad
 entry/leading zeros/logout, HTTP boundaries, duplicate PINs, multiple additive roles, denial, disablement,
 role/permission revocation, expiry, durable terminal/branch throttling, legacy staff-management enforcement and final-administrator safety.
 GUI tests (`POS_TEST_FX=true`) exercise the actual JavaFX grid, cancellation, PIN clearing, refusal,
-success, Home / Lock and the inactivity timeout with a controlled clock. Their rendered screenshot is
+success, Home / Lock, the inactivity timeout with a controlled clock, configured/incomplete/new startup
+routing and transition from successful setup into the grid. Their rendered screenshot is
 `pos-desktop/target/module-home.png`. Platform-specific tests remain separate on non-Windows hosts.
 
 The Windows workflow enables GUI tests, packages both setup and home-grid smoke paths, and exercises
@@ -115,3 +119,31 @@ layouts, final role design and staff onboarding. Earlier UAC, Windows 10, separa
 production-data/cutover gates still apply. Do not roll an upgraded database back to an older application
 that lacks these access controls; retain the additive data and fix forward, or restore a verified
 isolated pre-upgrade backup with the corresponding application and protected keys.
+
+### Final execution evidence — 25 October 2026
+
+Implementation revision `3dece51` passed [CI run 40195555898](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40195555898):
+
+- Windows: **56 tests, no failures, errors or skips**, including both actual JavaFX GUI scenarios.
+- Linux: **56 tests, no failures or errors; four platform/GUI skips** (two Windows-only tests and two GUI scenarios).
+- Secret scanning, formatting, static analysis and architecture checks passed.
+- The unsigned installer built and passed installed setup/home startup, protected PIN provisioning,
+  real enrolled-terminal TLS module access, password/module token separation, logout, service restart,
+  preserved catalogue and the existing uninstall/reinstall checks.
+- The log contains `PACKAGED_MODULE_HOME_OK` and two
+  `WINDOWS_STAGE5_MODULE_PIN_TLS_BOUNDARIES_OK` markers, before and after restart.
+- The earlier run 40194415287 also passed, before the additional routing/outage regression coverage.
+
+Private artifacts: [installer 12600111996](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40195555898/artifacts/12600111996),
+[Windows evidence 12600097230](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40195555898/artifacts/12600097230),
+and [Linux evidence 12599811127](https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40195555898/artifacts/12599811127).
+
+Local verification used JDK 25 and a newly created disposable PostgreSQL 16.15 cluster. The full reactor
+passed; both GUI scenarios were subsequently rerun successfully after the final outage-message change.
+The rendered grid was visually inspected. Both disposable local clusters and their credential files
+were stopped and removed after validation. The existing Windows 11 test PC and the user's local source
+database were not modified in this increment. Windows acceptance here ran on the hosted Windows runner;
+this is not a new claim of Windows 10 or manual UAC acceptance.
+
+[Changed-file inventory](stage5-changed-files.txt) lists the increment relative to the preceding Stage 4
+validation revision. The implementation is pushed on `codex/stage5-module-home`; main is unchanged.

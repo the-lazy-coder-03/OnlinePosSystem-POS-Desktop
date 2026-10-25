@@ -153,6 +153,52 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
             "/api/local/modules/activity",
             "/api/local/modules/logout")
         .contains(path)) throw new IllegalArgumentException("Unsupported module endpoint");
+    return authenticatedRequest(invitation, secrets, path, method, body, token);
+  }
+
+  public byte[] adminRequest(
+      Pairing.Invitation invitation,
+      SecretStore secrets,
+      String path,
+      String method,
+      byte[] body,
+      String token)
+      throws Exception {
+    var uri = URI.create(path);
+    if (uri.isAbsolute()
+        || uri.getRawAuthority() != null
+        || uri.getRawFragment() != null
+        || path.length() > 2048
+        || !uri.getRawPath()
+            .matches(
+                "/api/local/admin/(overview|staff|staff/options|roles|audit|audit/(types|settings|events|events/[a-f0-9-]{36})|staff/[a-f0-9-]{36}/pin)")
+        || !java.util.Set.of("GET", "PUT").contains(method))
+      throw new IllegalArgumentException("Unsupported administration endpoint");
+    return authenticatedRequest(invitation, secrets, path, method, body, token);
+  }
+
+  public byte[] catalogueRequest(
+      Pairing.Invitation invitation,
+      SecretStore secrets,
+      String path,
+      String method,
+      byte[] body,
+      String token)
+      throws Exception {
+    if (!(path.equals("/api/local/catalogue/state") && method.equals("GET")
+        || path.equals("/api/local/catalogue/records") && method.equals("PUT")))
+      throw new IllegalArgumentException("Unsupported catalogue endpoint");
+    return authenticatedRequest(invitation, secrets, path, method, body, token);
+  }
+
+  private byte[] authenticatedRequest(
+      Pairing.Invitation invitation,
+      SecretStore secrets,
+      String path,
+      String method,
+      byte[] body,
+      String token)
+      throws Exception {
     identity(invitation, secrets);
     try (var http = client(invitation, secrets, true)) {
       var builder =

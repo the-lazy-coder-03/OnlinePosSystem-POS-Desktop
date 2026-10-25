@@ -17,7 +17,9 @@ public final class RbacProvisioning {
   public static Set<String> allowedPermissions() {
     var result = new TreeSet<String>();
     for (var module : PosModule.values()) result.add(module.permission());
-    result.addAll(Set.of("staff.manage", "rbac.manage", "sales.layouts.edit"));
+    result.addAll(
+        Set.of(
+            "staff.manage", "rbac.manage", "audit.view", "catalogue.manage", "sales.layouts.edit"));
     return result;
   }
 
@@ -66,6 +68,10 @@ public final class RbacProvisioning {
                       identity.branchId(),
                       subject,
                       permission);
+                jdbc.update(
+                    "UPDATE pos.rbac_role SET revision=revision+1 WHERE branch_id=? AND name=?",
+                    identity.branchId(),
+                    subject);
               } else {
                 UUID staff =
                     jdbc.queryForObject(
@@ -74,7 +80,12 @@ public final class RbacProvisioning {
                         identity.branchId(),
                         subject);
                 aggregate = staff;
-                if (operation.equals("set-pin")) {
+                if (operation.equals("set-owner")) {
+                  jdbc.update(
+                      "INSERT INTO pos.store_owner(branch_id,staff_id) VALUES (?,?) ON CONFLICT(branch_id) DO UPDATE SET staff_id=excluded.staff_id",
+                      identity.branchId(),
+                      staff);
+                } else if (operation.equals("set-pin")) {
                   String hash = Passwords.hashPin(pin);
                   jdbc.update(
                       "INSERT INTO pos.staff_pin VALUES (?,?,?,?) ON CONFLICT (branch_id,staff_id) DO UPDATE SET lookup=excluded.lookup,hash=excluded.hash",
@@ -101,14 +112,14 @@ public final class RbacProvisioning {
                     staff);
                 jdbc.update("DELETE FROM pos.staff_session WHERE staff_id=?", staff);
               }
-              jdbc.update(
-                  "INSERT INTO pos.audit_record(audit_id,branch_id,actor_id,action,aggregate_id,details) VALUES (?,?,?,?,?,?::jsonb)",
-                  UUID.randomUUID(),
-                  identity.branchId(),
-                  identity.installationId(),
-                  "RBAC_" + operation.toUpperCase(Locale.ROOT).replace('-', '_'),
-                  aggregate,
-                  "{\"origin\":\"protected-owner-console\"}");
+              new AuditService(jdbc, za.co.onlinepos.installation.JsonFiles.JSON, identity)
+                  .record(
+                      null,
+                      "protected-owner-console",
+                      "RBAC_" + operation.toUpperCase(Locale.ROOT).replace('-', '_'),
+                      aggregate,
+                      null,
+                      java.util.Map.of("origin", "protected-owner-console", "subject", subject));
             });
   }
 }

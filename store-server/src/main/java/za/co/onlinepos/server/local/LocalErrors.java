@@ -28,4 +28,26 @@ public class LocalErrors {
   ResponseEntity<Map<String, String>> conflict(Exception exception) {
     return ResponseEntity.status(409).body(Map.of("error", "Identity or data conflict"));
   }
+
+  @ExceptionHandler({
+    org.springframework.transaction.TransactionSystemException.class,
+    org.springframework.dao.DataAccessException.class
+  })
+  ResponseEntity<Map<String, String>> database(RuntimeException exception) {
+    Throwable cause = exception;
+    while (cause != null) {
+      if (cause instanceof java.sql.SQLException sql) {
+        String state = sql.getSQLState();
+        if ("42501".equals(state))
+          return ResponseEntity.status(403).body(Map.of("error", "Permission required"));
+        if ("28000".equals(state))
+          return ResponseEntity.status(401).body(Map.of("error", "Session expired"));
+        if (state != null && state.startsWith("23"))
+          return ResponseEntity.status(409)
+              .body(Map.of("error", "Account or revision conflict. Reload before retrying."));
+      }
+      cause = cause.getCause();
+    }
+    return ResponseEntity.status(503).body(Map.of("error", "Store database unavailable"));
+  }
 }

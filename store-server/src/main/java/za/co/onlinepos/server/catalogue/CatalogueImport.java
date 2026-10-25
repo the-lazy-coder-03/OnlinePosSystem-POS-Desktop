@@ -165,6 +165,9 @@ public class CatalogueImport {
             false));
   }
 
+  @org.springframework.transaction.annotation.Transactional(
+      readOnly = true,
+      isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
   public JsonNode catalogue(int branch) {
     if (branch != identity.branchId()) throw new LocalFailure(403, "Branch access refused");
     var saved =
@@ -173,6 +176,15 @@ public class CatalogueImport {
             branch);
     if (saved.isEmpty()) throw new LocalFailure(404, "Catalogue not bootstrapped");
     var row = saved.getFirst();
+    var effective = new java.util.TreeMap<String, java.util.List<JsonNode>>();
+    jdbc.query(
+        "SELECT source_type,data::text FROM pos.catalogue_record WHERE branch_id=? ORDER BY source_type,source_id",
+        (org.springframework.jdbc.core.RowCallbackHandler)
+            rs ->
+                effective
+                    .computeIfAbsent(rs.getString(1), k -> new java.util.ArrayList<>())
+                    .add(journal.parse(rs.getString(2))),
+        branch);
     return journal.tree(
         Map.of(
             "snapshot",
@@ -183,6 +195,11 @@ public class CatalogueImport {
             row.get("cutover_at").toString(),
             "priceAuthority",
             "LOCAL",
+            "effectiveRevision",
+            jdbc.queryForObject(
+                "SELECT revision FROM pos.catalogue_version WHERE branch_id=?", Long.class, branch),
+            "effectiveTables",
+            effective,
             "effectivePrices",
             jdbc.queryForList(
                 "SELECT p.price_id,c.source_type,c.source_id,p.amount,p.available,p.revision FROM pos.branch_price p JOIN pos.catalog_item c USING(branch_id,item_id) WHERE p.branch_id=? ORDER BY c.source_type,c.source_id",
@@ -202,7 +219,7 @@ public class CatalogueImport {
         .orElseThrow();
   }
 
-  private String description(CatalogueSnapshot s, String table, JsonNode row) {
+  String description(CatalogueSnapshot s, String table, JsonNode row) {
     return switch (table) {
       case "branch_menu_item_price" ->
           find(s, "menu_item", "id", row.get("menu_item_id")).get("name").asText();
@@ -221,7 +238,7 @@ public class CatalogueImport {
     return !row.has("active") || row.get("active").asBoolean();
   }
 
-  private boolean available(CatalogueSnapshot s, String table, JsonNode row) {
+  boolean available(CatalogueSnapshot s, String table, JsonNode row) {
     return switch (table) {
       case "branch_menu_item_price" -> active(find(s, "menu_item", "id", row.get("menu_item_id")));
       case "branch_pizza_price" ->

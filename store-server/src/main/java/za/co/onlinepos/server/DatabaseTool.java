@@ -105,12 +105,15 @@ public final class DatabaseTool {
                   identity.branchId(),
                   username,
                   hash);
-              jdbc.update(
-                  "INSERT INTO pos.audit_record(audit_id,branch_id,actor_id,action,aggregate_id,details) VALUES (?,?,?,'STAFF_BOOTSTRAPPED',?,'{}')",
-                  UUID.randomUUID(),
-                  identity.branchId(),
-                  id,
-                  id);
+              new za.co.onlinepos.server.local.AuditService(
+                      jdbc, za.co.onlinepos.installation.JsonFiles.JSON, identity)
+                  .record(
+                      id,
+                      "protected-owner-console",
+                      "STAFF_BOOTSTRAPPED",
+                      id,
+                      null,
+                      java.util.Map.of());
             });
   }
 
@@ -204,10 +207,10 @@ public final class DatabaseTool {
         case "authorize" -> {
           /* Local management authentication above; no database mutation. */
         }
-        case "set-pin", "assign-roles", "set-role" -> {
+        case "set-pin", "assign-roles", "set-role", "set-owner" -> {
           String subject = option(args, operation.equals("set-role") ? "role" : "username");
           var values =
-              operation.equals("set-pin")
+              (operation.equals("set-pin") || operation.equals("set-owner"))
                   ? java.util.Set.<String>of()
                   : new java.util.HashSet<>(
                       java.util.Arrays.asList(

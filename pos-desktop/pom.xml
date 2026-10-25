@@ -8,6 +8,7 @@
   </parent>
   <artifactId>pos-desktop</artifactId>
   <dependencies>
+    <dependency><groupId>org.openjfx</groupId><artifactId>javafx-fxml</artifactId><version>${javafx.version}</version></dependency>
     <dependency><groupId>org.jboss.weld.se</groupId><artifactId>weld-se-core</artifactId></dependency>
     <dependency><groupId>za.co.onlinepos</groupId><artifactId>pos-installation</artifactId><version>${project.version}</version></dependency>
     <dependency>
@@ -32,6 +33,7 @@
   </dependencies>
   <properties>
     <desktop.args/>
+    <desktop.mainClass>za.co.onlinepos.desktop.Launcher</desktop.mainClass>
   </properties>
   <build>
     <plugins>
@@ -39,7 +41,7 @@
         <groupId>org.openjfx</groupId>
         <artifactId>javafx-maven-plugin</artifactId>
         <configuration>
-          <mainClass>za.co.onlinepos.desktop.Launcher</mainClass>
+          <mainClass>${desktop.mainClass}</mainClass>
           <commandlineArgs>${desktop.args}</commandlineArgs>
           <options>
             <option>--enable-native-access=javafx.graphics</option>

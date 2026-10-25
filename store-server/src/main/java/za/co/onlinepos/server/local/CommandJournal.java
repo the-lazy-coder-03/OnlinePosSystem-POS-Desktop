@@ -16,6 +16,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Profile({"installed", "local-store"})
 public class CommandJournal {
   private final JdbcTemplate jdbc;
+  private final AuditService audit;
   private final TransactionTemplate transactions;
   private final ObjectMapper json;
   private final LocalDatabase.Identity identity;
@@ -26,6 +27,7 @@ public class CommandJournal {
       ObjectMapper json,
       LocalDatabase.Identity identity) {
     this.jdbc = jdbc;
+    this.audit = new AuditService(jdbc, json, identity);
     this.transactions = transactions;
     this.json =
         json.copy()
@@ -101,21 +103,24 @@ public class CommandJournal {
       long revision,
       UUID command,
       Object safePayload) {
+    event(actor, type, aggregate, revision, command, safePayload, safePayload);
+  }
+
+  public void event(
+      StaffService.Actor actor,
+      String type,
+      UUID aggregate,
+      long revision,
+      UUID command,
+      Object safePayload,
+      Object auditDetails) {
     long position =
         jdbc.queryForObject(
             "UPDATE pos.stream_head SET position=position+1 WHERE branch_id=? RETURNING position",
             Long.class,
             identity.branchId());
     String payload = encode(safePayload);
-    jdbc.update(
-        "INSERT INTO pos.audit_record(audit_id,branch_id,actor_id,action,aggregate_id,command_id,details) VALUES (?,?,?,?,?,?,?::jsonb)",
-        UUID.randomUUID(),
-        identity.branchId(),
-        actor.staffId(),
-        type,
-        aggregate,
-        command,
-        payload);
+    audit.record(actor.staffId(), actor.terminal(), type, aggregate, command, auditDetails);
     jdbc.update(
         "INSERT INTO pos.outbox_event(event_id,branch_id,stream_position,aggregate_id,aggregate_revision,event_type,payload) VALUES (?,?,?,?,?,?,?::jsonb)",
         UUID.randomUUID(),

@@ -34,6 +34,7 @@ public class WindowsStaffSmoke {
     var input=new java.io.BufferedReader(new java.io.InputStreamReader(System.in, StandardCharsets.UTF_8));
     String staffPassword = input.readLine();
     String staffPin=input.readLine();
+    String cashierPin=input.readLine();
     if(staffPassword!=null && staffPassword.startsWith("\uFEFF")) staffPassword=staffPassword.substring(1);
     try (var client = HttpClient.newBuilder().sslContext(tls).connectTimeout(java.time.Duration.ofSeconds(10)).build()) {
       URI base = URI.create("https://localhost:8443");
@@ -81,12 +82,87 @@ public class WindowsStaffSmoke {
         post(client,base,"/api/local/modules/logout",moduleToken,"{}",200);
         get(client,base,"/api/local/modules/me",moduleToken,401);
         System.out.println("WINDOWS_STAGE5_MODULE_PIN_TLS_BOUNDARIES_OK");
+        if(cashierPin!=null) administration(client,base,staffPin,cashierPin,args.length==2);
       }
       var logout = HttpRequest.newBuilder(base.resolve("/api/local/auth/logout")).header("Authorization", "Bearer " + token).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}")).build();
       check(client.send(logout, HttpResponse.BodyHandlers.discarding()).statusCode() == 200, "Logout");
       get(client, base, "/api/local/menu", token, 401);
+      if(staffPin!=null && cashierPin!=null) catalogueManagement(client,base,staffPin,cashierPin,args.length==2);
     }
     System.out.println("WINDOWS_STAGE3_STAFF_TLS_API_OK");
+  }
+
+  private static com.fasterxml.jackson.databind.JsonNode jsonRequest(HttpClient client,URI base,String path,String method,String token,Object payload,int expected) throws Exception {
+    var request=HttpRequest.newBuilder(base.resolve(path)).header("Content-Type","application/json");
+    if(token!=null)request.header("Authorization","Bearer "+token);
+    request.method(method,payload==null?HttpRequest.BodyPublishers.noBody():HttpRequest.BodyPublishers.ofString(JsonFiles.JSON.writeValueAsString(payload)));
+    var response=client.send(request.build(),HttpResponse.BodyHandlers.ofString());
+    check(response.statusCode()==expected,"Administration HTTP "+response.statusCode()+" expected "+expected);
+    return expected==200?JsonFiles.JSON.readTree(response.body()):JsonFiles.JSON.createObjectNode();
+  }
+  private static void administration(HttpClient client,URI base,String ownerPin,String cashierPin,boolean initial) throws Exception {
+    String access=jsonRequest(client,base,"/api/local/modules/enter","POST",null,Map.of("pin",ownerPin,"module","ADMINISTRATION"),200).path("token").asText();
+    var overview=jsonRequest(client,base,"/api/local/admin/overview","GET",access,null,200);
+    check(overview.path("owner").asBoolean() && overview.path("ownerConfigured").asBoolean(),"Explicit owner designation");
+    jsonRequest(client,base,"/api/local/admin/staff/options","GET",access,null,200);
+    jsonRequest(client,base,"/api/local/admin/roles","GET",access,null,200);
+    if(initial) {
+      jsonRequest(client,base,"/api/local/admin/roles","PUT",access,Map.of("commandId",java.util.UUID.randomUUID(),"name","CI_ADMIN_VIEWER","permissions",java.util.List.of("module.administration","audit.view","module.catalogue"),"expectedRevision",-1),200);
+      var id=java.util.UUID.randomUUID();
+      var create=Map.of("commandId",java.util.UUID.randomUUID(),"staffId",id,"username","ci.admin.cashier","enabled",true,"roles",java.util.List.of("CASHIER","CI_ADMIN_VIEWER"),"expectedRevision",-1);
+      jsonRequest(client,base,"/api/local/admin/staff","PUT",access,create,200);
+      jsonRequest(client,base,"/api/local/admin/staff","PUT",access,create,200);
+      jsonRequest(client,base,"/api/local/admin/staff/"+id+"/pin","PUT",access,Map.of("commandId",java.util.UUID.randomUUID(),"expectedRevision",0,"pin",cashierPin),200);
+    }
+    var listing=jsonRequest(client,base,"/api/local/admin/staff?search=ci.admin.cashier&page=0","GET",access,null,200);
+    check(listing.path("items").size()==1,"PIN-only staff survived provisioning/restart");
+    var staff=listing.path("items").get(0);
+    check(staff.path("pinConfigured").asBoolean() && !staff.path("passwordLoginEnabled").asBoolean(),"PIN-only credentials");
+    check(!listing.toString().contains(cashierPin) && !listing.toString().contains("lookup") && !listing.toString().contains("600000:"),"Safe staff response");
+    String viewer=jsonRequest(client,base,"/api/local/modules/enter","POST",null,Map.of("pin",cashierPin,"module","ADMINISTRATION"),200).path("token").asText();
+    jsonRequest(client,base,"/api/local/admin/staff","GET",viewer,null,403);
+    jsonRequest(client,base,"/api/local/admin/roles","GET",viewer,null,403);
+    jsonRequest(client,base,"/api/local/admin/staff/"+staff.path("staffId").asText()+"/pin","PUT",viewer,Map.of("commandId",java.util.UUID.randomUUID(),"expectedRevision",staff.path("revision").asLong(),"pin",cashierPin),403);
+    var audit=jsonRequest(client,base,"/api/local/admin/audit?action=ADMIN_PIN_CHANGED&actor=ci.manager&page=0","GET",viewer,null,200);
+    check(!audit.path("items").isEmpty() && !audit.toString().contains(cashierPin) && !audit.toString().contains("details"),"Read-only filtered audit");
+    post(client,base,"/api/local/modules/logout",viewer,"{}",200);
+    post(client,base,"/api/local/modules/logout",access,"{}",200);
+    System.out.println("WINDOWS_ADMINISTRATION_OWNER_CRUD_AUDIT_TLS_OK");
+  }
+  private static void catalogueManagement(HttpClient client,URI base,String ownerPin,String viewerPin,boolean initial) throws Exception {
+    String admin=jsonRequest(client,base,"/api/local/modules/enter","POST",null,Map.of("pin",ownerPin,"module","ADMINISTRATION"),200).path("token").asText();
+    if(initial) {
+      jsonRequest(client,base,"/api/local/admin/roles","PUT",admin,Map.of("commandId",java.util.UUID.randomUUID(),"name","CI_CATALOGUE_EDITOR","permissions",java.util.List.of("module.catalogue","catalogue.manage"),"expectedRevision",-1),200);
+      var owner=jsonRequest(client,base,"/api/local/admin/staff?search=ci.manager&page=0","GET",admin,null,200).path("items").get(0);
+      jsonRequest(client,base,"/api/local/admin/staff","PUT",admin,Map.of("commandId",java.util.UUID.randomUUID(),"staffId",owner.path("staffId").asText(),"username","ci.manager","enabled",true,"roles",java.util.List.of("MANAGER","CI_CATALOGUE_EDITOR"),"expectedRevision",owner.path("revision").asLong()),200);
+      jsonRequest(client,base,"/api/local/admin/overview","GET",admin,null,401);
+    } else post(client,base,"/api/local/modules/logout",admin,"{}",200);
+    String access=jsonRequest(client,base,"/api/local/modules/enter","POST",null,Map.of("pin",ownerPin,"module","CATALOGUE"),200).path("token").asText();
+    var state=jsonRequest(client,base,"/api/local/catalogue/state","GET",access,null,200);
+    check(state.path("editable").asBoolean(),"Explicit catalogue permission");
+    if(initial) {
+      var category=state.path("tables").path("price_category").get(0).path("price_category_id").asLong();
+      var change=Map.of("table","ingredient","values",Map.of("name","CI catalogue ingredient","price_category_id",category,"active",true,"seasonal",false),"remove",false);
+      var command=Map.of("commandId",java.util.UUID.randomUUID(),"expectedRevision",state.path("revision").asLong(),"changes",java.util.List.of(change),"confirmSharedRecipe",false);
+      jsonRequest(client,base,"/api/local/catalogue/records","PUT",access,command,200);
+      jsonRequest(client,base,"/api/local/catalogue/records","PUT",access,command,200);
+      state=jsonRequest(client,base,"/api/local/catalogue/state","GET",access,null,200);
+      var item=state.path("tables").path("menu_item").get(0).deepCopy();
+      ((com.fasterxml.jackson.databind.node.ObjectNode)item).put("description","CI locally edited item");
+      var update=Map.of("table","menu_item","originalKey",java.util.List.of(item.path("id").asLong()),"values",item,"remove",false);
+      jsonRequest(client,base,"/api/local/catalogue/records","PUT",access,Map.of("commandId",java.util.UUID.randomUUID(),"expectedRevision",state.path("revision").asLong(),"changes",java.util.List.of(update),"confirmSharedRecipe",false),200);
+    }
+    state=jsonRequest(client,base,"/api/local/catalogue/state","GET",access,null,200);
+    check(state.path("revision").asLong()==2,"Catalogue revision persisted");
+    check(state.path("tables").path("ingredient").valueStream().anyMatch(r->r.path("name").asText().equals("CI catalogue ingredient")),"Created ingredient persisted");
+    check(state.path("tables").path("menu_item").valueStream().anyMatch(r->r.path("description").asText().equals("CI locally edited item")),"Edited item persisted");
+    jsonRequest(client,base,"/api/local/admin/staff","GET",access,null,403);
+    String viewer=jsonRequest(client,base,"/api/local/modules/enter","POST",null,Map.of("pin",viewerPin,"module","CATALOGUE"),200).path("token").asText();
+    check(!jsonRequest(client,base,"/api/local/catalogue/state","GET",viewer,null,200).path("editable").asBoolean(),"Read-only catalogue browse");
+    jsonRequest(client,base,"/api/local/catalogue/records","PUT",viewer,Map.of("commandId",java.util.UUID.randomUUID(),"expectedRevision",2,"changes",java.util.List.of(),"confirmSharedRecipe",false),403);
+    post(client,base,"/api/local/modules/logout",viewer,"{}",200);
+    post(client,base,"/api/local/modules/logout",access,"{}",200);
+    System.out.println("WINDOWS_CATALOGUE_ITEMS_INGREDIENTS_CRUD_TLS_OK");
   }
   private static String fingerprint(com.fasterxml.jackson.databind.JsonNode snapshot,com.fasterxml.jackson.databind.JsonNode schema) throws Exception {
     var normalized=(com.fasterxml.jackson.databind.node.ObjectNode)snapshot.deepCopy();

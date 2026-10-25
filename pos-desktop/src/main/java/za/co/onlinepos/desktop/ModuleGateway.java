@@ -52,4 +52,33 @@ public class ModuleGateway {
             .moduleRequest(
                 trust(secrets), secrets, "/api/local/modules/" + endpoint, method, body, token));
   }
+
+  public JsonNode admin(String path, String method, Object payload, String token) throws Exception {
+    var secrets = secrets();
+    byte[] body = null;
+    try {
+      if (payload != null) body = JsonFiles.JSON.writeValueAsBytes(payload);
+      return JsonFiles.JSON.readTree(
+          new TrustedStoreClient()
+              .adminRequest(
+                  trust(secrets), secrets, "/api/local/admin/" + path, method, body, token));
+    } finally {
+      if (body != null) Arrays.fill(body, (byte) 0);
+    }
+  }
+
+  public JsonNode catalogue(String path, String method, Object payload, String token)
+      throws Exception {
+    var secrets = secrets();
+    byte[] body = null;
+    try {
+      if (payload != null) body = JsonFiles.JSON.writeValueAsBytes(payload);
+      return JsonFiles.JSON.readTree(
+          new TrustedStoreClient()
+              .catalogueRequest(
+                  trust(secrets), secrets, "/api/local/catalogue/" + path, method, body, token));
+    } finally {
+      if (body != null) Arrays.fill(body, (byte) 0);
+    }
+  }
 }

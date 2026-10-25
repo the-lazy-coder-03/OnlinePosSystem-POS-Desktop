@@ -81,13 +81,26 @@ class LocalPostgresIT {
   @Autowired StaffService staff;
   @Autowired CommandJournal journal;
   @Autowired za.co.onlinepos.server.local.ModuleAccess modules;
+  @Autowired za.co.onlinepos.server.local.AdministrationService administration;
+  @Autowired za.co.onlinepos.server.local.AuditService audit;
+  @Autowired za.co.onlinepos.server.local.AuditPolicyService auditPolicy;
   private static final String PIN_KEY = java.util.Base64.getEncoder().encodeToString(new byte[32]);
   private StaffService.Actor manager;
   private String token;
 
+  // Schema-owner-only disposable fixture reset, never an application API or runtime privilege.
+  private static void truncateAuditFixtures(String sql) {
+    ADMIN.execute("ALTER TABLE pos.audit_record DISABLE TRIGGER immutable_audit_truncate");
+    try {
+      ADMIN.execute(sql);
+    } finally {
+      ADMIN.execute("ALTER TABLE pos.audit_record ENABLE TRIGGER immutable_audit_truncate");
+    }
+  }
+
   @BeforeEach
   void fixture() {
-    ADMIN.execute(
+    truncateAuditFixtures(
         "TRUNCATE pos.catalogue_bootstrap,pos.staff,pos.staff_session,pos.catalog_item,pos.branch_price,pos.local_customer,pos.order_draft,pos.order_line,pos.order_line_extra,pos.payment_metadata,pos.command_receipt,pos.audit_record,pos.outbox_event,pos.inbox_receipt,pos.terminal_printer CASCADE");
     ADMIN.execute("TRUNCATE pos.pin_throttle,pos.rbac_role CASCADE");
     ADMIN.update("INSERT INTO pos.rbac_role VALUES (1,'MANAGER'),(1,'CASHIER')");
@@ -96,6 +109,9 @@ class LocalPostgresIT {
     ADMIN.update(
         "INSERT INTO pos.role_permission VALUES (1,'MANAGER','rbac.manage'),(1,'MANAGER','staff.manage'),(1,'CASHIER','module.sales_orders')");
     ADMIN.update("UPDATE pos.stream_head SET position=0");
+    ADMIN.update("UPDATE pos.audit_tracking_settings SET enabled=true");
+    ADMIN.update("UPDATE pos.audit_policy SET revision=0,updated_at=NULL,updated_by_owner_id=NULL");
+    ADMIN.update("DELETE FROM pos.audit_approval");
     DatabaseTool.bootstrap(OWNER, IDENTITY, "manager", PASSWORD.toCharArray());
     ADMIN.update(
         "INSERT INTO pos.catalog_item(item_id,branch_id,source_type,source_id,description,definition,definition_revision) VALUES (?,1,'TEST_FIXTURE','fixture','Test item','{}',0)",
@@ -177,7 +193,7 @@ class LocalPostgresIT {
                 "INSERT INTO pos.local_customer(customer_id,branch_id,display_name) VALUES (?,2,'wrong branch')",
                 UUID.randomUUID()));
     assertEquals(
-        3,
+        6,
         ADMIN.queryForObject(
             "SELECT count(*) FROM public.flyway_schema_history WHERE success", Integer.class));
     assertThrows(
@@ -824,10 +840,19 @@ class LocalPostgresIT {
     UUID price =
         za.co.onlinepos.server.catalogue.CatalogueImport.stable(
             1, "price", "branch_pizza_price", "[1,1,1]");
-    operations.price(
-        manager,
-        price,
-        new LocalCommands.PriceEdit(UUID.randomUUID(), 0, new BigDecimal("90.00"), true));
+    ADMIN.update("INSERT INTO pos.role_permission VALUES (1,'MANAGER','catalogue.manage')");
+    provisionPin("manager", "012345");
+    String access = enter("012345", za.co.onlinepos.contracts.PosModule.CATALOGUE);
+    var priceRow = editor.state(access, TERMINAL).path("tables").path("branch_pizza_price").get(0);
+    var priceValues = catalogueValues(priceRow);
+    priceValues.put("price", new BigDecimal("90.00"));
+    editor.edit(
+        access,
+        TERMINAL,
+        catalogueEdit(access, "branch_pizza_price", priceRow, priceValues, false, false));
+    token =
+        (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
+    manager = staff.authenticate(token, TERMINAL);
     catalogue.apply(manager, 1, command);
     assertEquals(
         new BigDecimal("90.00"),
@@ -961,7 +986,7 @@ class LocalPostgresIT {
     try {
       for (int branch : new int[] {1, 2}) {
         // Only the dedicated disposable test database is touched; rebind after removing fixtures.
-        ADMIN.execute("TRUNCATE pos.store_identity CASCADE");
+        truncateAuditFixtures("TRUNCATE pos.store_identity CASCADE");
         var identity =
             new LocalDatabase.Identity(branch, IDENTITY.clusterId(), IDENTITY.installationId());
         ADMIN.update(
@@ -1047,7 +1072,7 @@ class LocalPostgresIT {
                 .status());
       }
     } finally {
-      ADMIN.execute("TRUNCATE pos.store_identity CASCADE");
+      truncateAuditFixtures("TRUNCATE pos.store_identity CASCADE");
       ADMIN.update(
           "INSERT INTO pos.store_identity(branch_id,cluster_id,installation_id) VALUES (?,?,?)",
           IDENTITY.branchId(),
@@ -1285,5 +1310,1396 @@ class LocalPostgresIT {
         403,
         assertThrows(LocalFailure.class, () -> staff.list(staff.authenticate(fresh, TERMINAL)))
             .status());
+  }
+
+  private String adminToken(boolean designateOwner) {
+    provisionPin("manager", "012345");
+    if (designateOwner)
+      za.co.onlinepos.server.local.RbacProvisioning.apply(
+          OWNER, IDENTITY, "set-owner", "manager", java.util.Set.of(), new char[0], PIN_KEY);
+    return enter("012345", za.co.onlinepos.contracts.PosModule.ADMINISTRATION);
+  }
+
+  private JsonNode adminRow(String access, UUID id) {
+    return json.valueToTree(administration.staff(access, TERMINAL, "", 0))
+        .path("items")
+        .valueStream()
+        .filter(row -> row.path("staffId").asText().equals(id.toString()))
+        .findFirst()
+        .orElseThrow();
+  }
+
+  private UUID adminCreate(String access, String username, java.util.Set<String> roles) {
+    UUID id = UUID.randomUUID();
+    administration.editStaff(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Administration.StaffEdit(
+            UUID.randomUUID(), id, username, true, roles, -1));
+    return id;
+  }
+
+  private void adminPin(String access, UUID id, String pin) {
+    administration.editPin(
+        access,
+        TERMINAL,
+        id,
+        new za.co.onlinepos.contracts.Administration.PinEdit(
+            UUID.randomUUID(), adminRow(access, id).path("revision").asLong(), pin));
+  }
+
+  @Test
+  void administrationRequiresItsOwnModuleSessionAndExplicitOwnerDesignation() throws Exception {
+    String access = adminToken(false);
+    assertEquals(false, administration.overview(access, TERMINAL).get("ownerConfigured"));
+    http.perform(get("/api/local/admin/overview")).andExpect(status().isUnauthorized());
+    String passwordToken =
+        (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
+    http.perform(
+            get("/api/local/admin/overview").header("Authorization", "Bearer " + passwordToken))
+        .andExpect(status().isUnauthorized());
+    String reports = enter("012345", za.co.onlinepos.contracts.PosModule.REPORTS);
+    http.perform(get("/api/local/admin/overview").header("Authorization", "Bearer " + reports))
+        .andExpect(status().isForbidden());
+    http.perform(get("/api/local/admin/overview").header("Authorization", "Bearer " + access))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.owner").value(false));
+    assertEquals(
+        401,
+        assertThrows(LocalFailure.class, () -> administration.overview(access, "wrong-terminal"))
+            .status());
+    assertEquals(
+        403,
+        assertThrows(LocalFailure.class, () -> adminPin(access, manager.staffId(), "111111"))
+            .status());
+    assertEquals(0, ADMIN.queryForObject("SELECT count(*) FROM pos.store_owner", Integer.class));
+  }
+
+  @Test
+  void administrationCreatesPinOnlyStaffWithIdempotencyAndSafeResponses() throws Exception {
+    String access = adminToken(true);
+    UUID id = UUID.randomUUID(), command = UUID.randomUUID();
+    var create =
+        new za.co.onlinepos.contracts.Administration.StaffEdit(
+            command, id, "new.cashier", true, java.util.Set.of("CASHIER"), -1);
+    var first = administration.editStaff(access, TERMINAL, create);
+    assertEquals(first, administration.editStaff(access, TERMINAL, create));
+    assertEquals(
+        1,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE command_id=?", Integer.class, command));
+    var row = adminRow(access, id);
+    assertFalse(row.path("pinConfigured").asBoolean());
+    assertFalse(row.path("passwordLoginEnabled").asBoolean());
+    // Even a known valid password hash cannot enable password login for a PIN-only account.
+    ADMIN.update(
+        "UPDATE pos.staff SET password_hash=? WHERE staff_id=?",
+        za.co.onlinepos.server.local.Passwords.hash(PASSWORD.toCharArray()),
+        id);
+    assertEquals(
+        401,
+        assertThrows(
+                LocalFailure.class,
+                () -> staff.login(new StaffService.Login("new.cashier", PASSWORD), TERMINAL))
+            .status());
+    assertEquals(
+        401,
+        assertThrows(
+                LocalFailure.class,
+                () -> enter("000123", za.co.onlinepos.contracts.PosModule.SALES_ORDERS))
+            .status());
+    adminPin(access, id, "000123");
+    String sales = enter("000123", za.co.onlinepos.contracts.PosModule.SALES_ORDERS);
+    assertEquals(id, modules.authenticate(sales, TERMINAL, false).staffId());
+    String body = json.writeValueAsString(administration.staff(access, TERMINAL, "new.", 0));
+    for (String forbidden :
+        java.util.List.of("000123", "password_hash", "lookup", "600000:", PIN_KEY))
+      assertFalse(body.contains(forbidden));
+    var duplicate =
+        new za.co.onlinepos.contracts.Administration.StaffEdit(
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            "new.cashier",
+            true,
+            java.util.Set.of("CASHIER"),
+            -1);
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/admin/staff")
+                .header("Authorization", "Bearer " + access)
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(duplicate)))
+        .andExpect(status().isConflict());
+    var stale =
+        new za.co.onlinepos.contracts.Administration.StaffEdit(
+            UUID.randomUUID(), id, "wrong", true, java.util.Set.of("CASHIER"), -1);
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/admin/staff")
+                .header("Authorization", "Bearer " + access)
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(stale)))
+        .andExpect(status().isConflict());
+    assertEquals("new.cashier", adminRow(access, id).path("username").asText());
+    long revision = adminRow(access, id).path("revision").asLong();
+    administration.editStaff(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Administration.StaffEdit(
+            UUID.randomUUID(), id, "new.cashier", false, java.util.Set.of("CASHIER"), revision));
+    assertThrows(LocalFailure.class, () -> modules.authenticate(sales, TERMINAL, false));
+  }
+
+  @Test
+  void administrationProtectsOwnerAndPreventsPrivilegeDelegationByLimitedManagers()
+      throws Exception {
+    String access = adminToken(true);
+    administration.editRole(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Administration.RoleEdit(
+            UUID.randomUUID(),
+            "STAFF_HELPER",
+            java.util.Set.of("module.administration", "staff.manage"),
+            -1));
+    UUID helper = adminCreate(access, "helper", java.util.Set.of("STAFF_HELPER"));
+    adminPin(access, helper, "111222");
+    String limited = enter("111222", za.co.onlinepos.contracts.PosModule.ADMINISTRATION);
+    assertEquals(
+        403,
+        assertThrows(LocalFailure.class, () -> administration.roles(limited, TERMINAL, false))
+            .status());
+    assertEquals(
+        403, assertThrows(LocalFailure.class, () -> adminPin(limited, helper, "123456")).status());
+    assertEquals(
+        403,
+        assertThrows(
+                LocalFailure.class,
+                () -> adminCreate(limited, "escalated", java.util.Set.of("MANAGER")))
+            .status());
+    var editOwner =
+        new za.co.onlinepos.contracts.Administration.StaffEdit(
+            UUID.randomUUID(),
+            manager.staffId(),
+            "takeover",
+            true,
+            java.util.Set.of("MANAGER"),
+            adminRow(access, manager.staffId()).path("revision").asLong());
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/admin/staff")
+                .header("Authorization", "Bearer " + limited)
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(editOwner)))
+        .andExpect(status().isForbidden());
+    assertEquals("manager", adminRow(access, manager.staffId()).path("username").asText());
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> runtime.update("UPDATE pos.store_owner SET staff_id=?", helper));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.update(
+                "UPDATE pos.staff SET username='forged' WHERE staff_id=?", manager.staffId()));
+    // A direct call to the narrow SQL function still requires the owner for PIN changes.
+    var pinData =
+        java.util.Map.of(
+            "staffId",
+            helper,
+            "expectedRevision",
+            0,
+            "lookup",
+            "0".repeat(64),
+            "hash",
+            "600000:invalid:invalid");
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.apply_admin_change(?,?,?,?::jsonb)",
+                Long.class,
+                CommandJournal.digest(limited),
+                TERMINAL,
+                "pin",
+                json.writeValueAsString(pinData)));
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/admin/owner")
+                .header("Authorization", "Bearer " + limited)
+                .contentType("application/json")
+                .content("{}"))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void administrationRoleRevisionsRevocationAndPermanentOwnerAccess() throws Exception {
+    String access = adminToken(true);
+    var create =
+        new za.co.onlinepos.contracts.Administration.RoleEdit(
+            UUID.randomUUID(),
+            "AUDITOR",
+            java.util.Set.of("module.administration", "audit.view"),
+            -1);
+    var created = administration.editRole(access, TERMINAL, create);
+    assertEquals(created, administration.editRole(access, TERMINAL, create));
+    var roleAudit =
+        json.valueToTree(
+            administration.audit(access, TERMINAL, 0, null, "ADMIN_ROLE_CHANGED", null, null));
+    assertEquals("AUDITOR", roleAudit.path("items").get(0).path("targetName").asText());
+    UUID auditor = adminCreate(access, "auditor", java.util.Set.of("AUDITOR"));
+    adminPin(access, auditor, "222333");
+    String auditToken = enter("222333", za.co.onlinepos.contracts.PosModule.ADMINISTRATION);
+    assertNotNull(administration.audit(auditToken, TERMINAL, 0, null, null, null, null));
+    assertEquals(
+        403,
+        assertThrows(LocalFailure.class, () -> administration.staff(auditToken, TERMINAL, "", 0))
+            .status());
+    administration.editRole(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Administration.RoleEdit(
+            UUID.randomUUID(), "AUDITOR", java.util.Set.of("module.administration"), 0));
+    assertThrows(LocalFailure.class, () -> modules.authenticate(auditToken, TERMINAL, false));
+    String fresh = enter("222333", za.co.onlinepos.contracts.PosModule.ADMINISTRATION);
+    assertEquals(
+        403,
+        assertThrows(
+                LocalFailure.class,
+                () -> administration.audit(fresh, TERMINAL, 0, null, null, null, null))
+            .status());
+    var stale =
+        new za.co.onlinepos.contracts.Administration.RoleEdit(
+            UUID.randomUUID(), "AUDITOR", java.util.Set.of("audit.view"), 0);
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/admin/roles")
+                .header("Authorization", "Bearer " + access)
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(stale)))
+        .andExpect(status().isConflict());
+    assertEquals(
+        400,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    administration.editRole(
+                        access,
+                        TERMINAL,
+                        new za.co.onlinepos.contracts.Administration.RoleEdit(
+                            UUID.randomUUID(),
+                            "FUTURE",
+                            java.util.Set.of("sales.layouts.edit"),
+                            -1)))
+            .status());
+    var changed =
+        administration.editRole(
+            access,
+            TERMINAL,
+            new za.co.onlinepos.contracts.Administration.RoleEdit(
+                UUID.randomUUID(), "MANAGER", java.util.Set.of(), 0));
+    assertTrue(changed.path("reauthenticate").asBoolean());
+    String ownerAgain = enter("012345", za.co.onlinepos.contracts.PosModule.ADMINISTRATION);
+    assertTrue(
+        modules
+            .authenticate(ownerAgain, TERMINAL, false)
+            .permissions()
+            .containsAll(
+                java.util.Set.of(
+                    "rbac.manage", "staff.manage", "audit.view", "module.administration")));
+    var disable =
+        new za.co.onlinepos.contracts.Administration.StaffEdit(
+            UUID.randomUUID(),
+            manager.staffId(),
+            "manager",
+            false,
+            java.util.Set.of("MANAGER"),
+            adminRow(ownerAgain, manager.staffId()).path("revision").asLong());
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/admin/staff")
+                .header("Authorization", "Bearer " + ownerAgain)
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(disable)))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void administrationAuditFiltersPaginationAndPinConflictAreSafeAndAtomic() throws Exception {
+    String access = adminToken(true);
+    UUID other = adminCreate(access, "other", java.util.Set.of("CASHIER"));
+    adminPin(access, other, "333444");
+    long revision = adminRow(access, other).path("revision").asLong();
+    UUID command = UUID.randomUUID();
+    int auditBefore = ADMIN.queryForObject("SELECT count(*) FROM pos.audit_record", Integer.class);
+    var collision =
+        new za.co.onlinepos.contracts.Administration.PinEdit(command, revision, "012345");
+    var response =
+        http.perform(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                        "/api/local/admin/staff/" + other + "/pin")
+                    .header("Authorization", "Bearer " + access)
+                    .contentType("application/json")
+                    .content(json.writeValueAsBytes(collision)))
+            .andExpect(status().isConflict())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    assertFalse(response.contains("012345"));
+    assertFalse(response.contains("lookup"));
+    assertEquals(
+        auditBefore, ADMIN.queryForObject("SELECT count(*) FROM pos.audit_record", Integer.class));
+    assertEquals(
+        0,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.command_receipt WHERE command_id=?", Integer.class, command));
+    assertEquals(revision, adminRow(access, other).path("revision").asLong());
+    for (int i = 0; i < 53; i++)
+      ADMIN.update(
+          "INSERT INTO pos.audit_record(audit_id,branch_id,actor_id,action,aggregate_id,details,occurred_at) VALUES (?,1,?,'TEST_FILTER',?,?::jsonb,?)",
+          UUID.randomUUID(),
+          manager.staffId(),
+          other,
+          "{\"pin\":\"AUDIT_SECRET_SHOULD_NOT_LEAK\"}",
+          java.sql.Timestamp.from(java.time.Instant.parse("2026-10-25T10:00:00Z").plusSeconds(i)));
+    var page0 =
+        json.valueToTree(
+            administration.audit(
+                access,
+                TERMINAL,
+                0,
+                "manager",
+                "TEST_FILTER",
+                java.time.Instant.parse("2026-10-25T10:00:00Z"),
+                java.time.Instant.parse("2026-10-25T10:01:00Z")));
+    var page1 =
+        json.valueToTree(
+            administration.audit(
+                access,
+                TERMINAL,
+                1,
+                "manager",
+                "TEST_FILTER",
+                java.time.Instant.parse("2026-10-25T10:00:00Z"),
+                java.time.Instant.parse("2026-10-25T10:01:00Z")));
+    http.perform(
+            get("/api/local/admin/audit")
+                .header("Authorization", "Bearer " + access)
+                .param("actor", "manager")
+                .param("action", "TEST_FILTER")
+                .param("from", "2026-10-25T10:00:00Z")
+                .param("to", "2026-10-25T10:01:00Z")
+                .param("page", "0"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.length()").value(50))
+        .andExpect(jsonPath("$.hasMore").value(true));
+    assertEquals(50, page0.path("items").size());
+    assertTrue(page0.path("hasMore").asBoolean());
+    assertEquals(3, page1.path("items").size());
+    assertFalse(page1.path("hasMore").asBoolean());
+    assertEquals("other", page0.path("items").get(0).path("targetName").asText());
+    assertFalse(page0.toString().contains("AUDIT_SECRET"));
+    assertFalse(page0.toString().contains("details"));
+    assertFalse(
+        json.valueToTree(administration.audit(access, TERMINAL, 0, "protected", null, null, null))
+            .path("items")
+            .isEmpty());
+    assertEquals(
+        400,
+        assertThrows(
+                LocalFailure.class,
+                () -> administration.audit(access, TERMINAL, -1, null, null, null, null))
+            .status());
+  }
+
+  @Test
+  void administrationOwnerPinResetAndProtectedOwnershipTransferRevokeSessions() {
+    String access = adminToken(true);
+    UUID nextOwner = adminCreate(access, "next.owner", java.util.Set.of("CASHIER"));
+    adminPin(access, nextOwner, "444555");
+    var reset =
+        administration.editPin(
+            access,
+            TERMINAL,
+            manager.staffId(),
+            new za.co.onlinepos.contracts.Administration.PinEdit(
+                UUID.randomUUID(),
+                adminRow(access, manager.staffId()).path("revision").asLong(),
+                "555666"));
+    assertTrue(reset.path("reauthenticate").asBoolean());
+    assertThrows(LocalFailure.class, () -> modules.authenticate(access, TERMINAL, false));
+    String fresh = enter("555666", za.co.onlinepos.contracts.PosModule.ADMINISTRATION);
+    za.co.onlinepos.server.local.RbacProvisioning.apply(
+        OWNER, IDENTITY, "set-owner", "next.owner", java.util.Set.of(), new char[0], PIN_KEY);
+    assertThrows(LocalFailure.class, () -> modules.authenticate(fresh, TERMINAL, false));
+    String next = enter("444555", za.co.onlinepos.contracts.PosModule.ADMINISTRATION);
+    assertEquals(true, administration.overview(next, TERMINAL).get("owner"));
+    String former = enter("555666", za.co.onlinepos.contracts.PosModule.ADMINISTRATION);
+    assertEquals(false, administration.overview(former, TERMINAL).get("owner"));
+    assertEquals(
+        403,
+        assertThrows(LocalFailure.class, () -> adminPin(former, nextOwner, "666777")).status());
+    // Existing password-based recovery for the original account remains available.
+    assertNotNull(staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token"));
+  }
+
+  @Autowired za.co.onlinepos.server.catalogue.CatalogueManagementService editor;
+
+  private String catalogueEditor() throws Exception {
+    emptyCatalogue();
+    var f = new za.co.onlinepos.server.catalogue.SnapshotFormat();
+    var source = snapshot(1);
+    catalogue.apply(
+        manager,
+        1,
+        new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+            UUID.randomUUID(), f.fingerprint(source), source));
+    ADMIN.update("INSERT INTO pos.role_permission VALUES (1,'MANAGER','catalogue.manage')");
+    provisionPin("manager", "012345");
+    return enter("012345", za.co.onlinepos.contracts.PosModule.CATALOGUE);
+  }
+
+  private java.util.Map<String, Object> catalogueValues(JsonNode row) {
+    return json.convertValue(
+        row, new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Object>>() {});
+  }
+
+  private za.co.onlinepos.contracts.CatalogueManagement.Edit catalogueEdit(
+      String access,
+      String table,
+      JsonNode row,
+      java.util.Map<String, Object> values,
+      boolean remove,
+      boolean shared) {
+    var state = editor.state(access, TERMINAL);
+    List<Long> key = row == null ? null : new java.util.ArrayList<>();
+    if (row != null)
+      for (var k : state.path("schema").path(table).path("keys"))
+        key.add(row.path(k.asText()).longValue());
+    return new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+        UUID.randomUUID(),
+        state.path("revision").asLong(),
+        List.of(
+            new za.co.onlinepos.contracts.CatalogueManagement.Change(table, key, values, remove)),
+        shared);
+  }
+
+  @Test
+  void catalogueEditorUpdatesAllFamiliesWithoutChangingBootstrapOrStableIdentities()
+      throws Exception {
+    String access = catalogueEditor();
+    var original = catalogue.catalogue(1);
+    var ids =
+        runtime.queryForList("SELECT item_id,price_id FROM pos.branch_price ORDER BY price_id");
+    var state = editor.state(access, TERMINAL);
+    var changes = new java.util.ArrayList<za.co.onlinepos.contracts.CatalogueManagement.Change>();
+    for (var entry : state.path("tables").properties()) {
+      String table = entry.getKey();
+      for (var row : entry.getValue()) {
+        var values = catalogueValues(row);
+        if (values.containsKey("name")) values.put("name", "Edited " + table);
+        if (values.containsKey("ingredient_name"))
+          values.put("ingredient_name", "Edited salad ingredient");
+        if (values.containsKey("price")) values.put("price", new BigDecimal("12.50"));
+        if (values.containsKey("additional_price"))
+          values.put("additional_price", new BigDecimal("1.25"));
+        var key = new java.util.ArrayList<Long>();
+        for (var k : state.path("schema").path(table).path("keys"))
+          key.add(row.path(k.asText()).longValue());
+        changes.add(
+            new za.co.onlinepos.contracts.CatalogueManagement.Change(table, key, values, false));
+      }
+    }
+    var edit =
+        new za.co.onlinepos.contracts.CatalogueManagement.Edit(UUID.randomUUID(), 0, changes, true);
+    var saved = editor.edit(access, TERMINAL, edit);
+    assertEquals(1, saved.path("revision").asLong());
+    assertEquals(saved, editor.edit(access, TERMINAL, edit));
+    assertEquals(
+        ids,
+        runtime.queryForList("SELECT item_id,price_id FROM pos.branch_price ORDER BY price_id"));
+    assertEquals(original.path("snapshot"), catalogue.catalogue(1).path("snapshot"));
+    assertEquals(original.path("sha256"), catalogue.catalogue(1).path("sha256"));
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='CATALOGUE_CHANGED'",
+            Integer.class));
+    assertTrue(
+        runtime
+            .queryForObject(
+                "SELECT definition::text FROM pos.catalog_item WHERE source_type='branch_pizza_price'",
+                String.class)
+            .contains("Edited ingredient"));
+    assertEquals(
+        new BigDecimal("12.50"),
+        runtime.queryForObject(
+            "SELECT amount FROM pos.branch_price p JOIN pos.catalog_item c USING(branch_id,item_id) WHERE c.source_type='branch_menu_item_price'",
+            BigDecimal.class));
+  }
+
+  @Test
+  void catalogueCreatesMastersAndRelatedPricesAndRejectsRemovalOfMasters() throws Exception {
+    String access = catalogueEditor();
+    for (String table :
+        List.of(
+            "menu_category",
+            "menu_item",
+            "pizza_category",
+            "pizza",
+            "pizza_size",
+            "price_category",
+            "ingredient",
+            "pizza_base_option",
+            "burger_component",
+            "burger_recipe",
+            "modifier_group",
+            "modifier_option",
+            "salad_ingredients")) {
+      var row = editor.state(access, TERMINAL).path("tables").path(table).get(0);
+      var values = catalogueValues(row);
+      if (values.containsKey("name")) values.put("name", "New " + table);
+      if (values.containsKey("ingredient_name"))
+        values.put("ingredient_name", "New salad ingredient");
+      editor.edit(access, TERMINAL, catalogueEdit(access, table, null, values, false, true));
+      assertEquals(2, editor.state(access, TERMINAL).path("tables").path(table).size());
+    }
+    var newItem =
+        editor
+            .state(access, TERMINAL)
+            .path("tables")
+            .path("menu_item")
+            .valueStream()
+            .filter(r -> r.path("name").asText().equals("New menu_item"))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(newItem.path("id").asLong() >= 1000000000);
+    editor.edit(
+        access,
+        TERMINAL,
+        catalogueEdit(
+            access,
+            "branch_menu_item_price",
+            null,
+            java.util.Map.of(
+                "branch_id",
+                1,
+                "menu_item_id",
+                newItem.path("id").asLong(),
+                "price",
+                new BigDecimal("55.20")),
+            false,
+            false));
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.catalog_item WHERE description='New menu_item'",
+            Integer.class));
+    var remove = catalogueEdit(access, "menu_item", newItem, catalogueValues(newItem), true, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, remove)).status());
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/catalogue/records")
+                .header("Authorization", "Bearer " + access)
+                .contentType("application/json")
+                .content(
+                    json.writeValueAsBytes(
+                        catalogueEdit(
+                            access, "menu_item", newItem, catalogueValues(newItem), false, false))))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  void catalogueApiRequiresCatalogueModuleAndExplicitEditPermissionWithImmediateRevocation()
+      throws Exception {
+    String writable = catalogueEditor();
+    String access = writable;
+    String legacy =
+        (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
+    UUID importedPrice =
+        runtime.queryForObject("SELECT price_id FROM pos.branch_price LIMIT 1", UUID.class);
+    var legacyEdit =
+        new LocalCommands.PriceEdit(UUID.randomUUID(), 0, new BigDecimal("1.00"), true);
+    assertEquals(
+        403,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    operations.price(
+                        staff.authenticate(legacy, TERMINAL), importedPrice, legacyEdit))
+            .status());
+    http.perform(
+            patch("/api/local/branches/1/prices/" + importedPrice)
+                .header("Authorization", "Bearer " + legacy)
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(legacyEdit)))
+        .andExpect(status().isForbidden());
+
+    http.perform(get("/api/local/catalogue/state").header("Authorization", "Bearer " + access))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.editable").value(true));
+    http.perform(get("/api/local/catalogue/state").header("Authorization", "Bearer " + token))
+        .andExpect(status().isUnauthorized());
+    String other = enter("012345", za.co.onlinepos.contracts.PosModule.ADMINISTRATION);
+    http.perform(get("/api/local/catalogue/state").header("Authorization", "Bearer " + other))
+        .andExpect(status().isForbidden());
+    assertEquals(
+        401,
+        assertThrows(LocalFailure.class, () -> editor.state(writable, "other-terminal")).status());
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> runtime.update("UPDATE pos.catalogue_record SET data='{}'"));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.apply_catalogue_change(?,?,0,'[]','[]')",
+                Long.class,
+                CommandJournal.digest(other),
+                TERMINAL));
+    ADMIN.update("DELETE FROM pos.role_permission WHERE permission='catalogue.manage'");
+    assertEquals(
+        401, assertThrows(LocalFailure.class, () -> editor.state(writable, TERMINAL)).status());
+    access = enter("012345", za.co.onlinepos.contracts.PosModule.CATALOGUE);
+    assertFalse(editor.state(access, TERMINAL).path("editable").asBoolean());
+    var row = editor.state(access, TERMINAL).path("tables").path("menu_item").get(0);
+    var edit = catalogueEdit(access, "menu_item", row, catalogueValues(row), false, false);
+    final String browse = access;
+    assertEquals(
+        403, assertThrows(LocalFailure.class, () -> editor.edit(browse, TERMINAL, edit)).status());
+    ADMIN.update("UPDATE pos.module_session SET expires_at=clock_timestamp()-interval '1 second'");
+    assertEquals(
+        401, assertThrows(LocalFailure.class, () -> editor.state(browse, TERMINAL)).status());
+  }
+
+  @Test
+  void catalogueValidatesPricesReferencesSizesAndInactiveIngredientAssignments() throws Exception {
+    String access = catalogueEditor();
+    for (String table :
+        List.of(
+            "branch_menu_item_price",
+            "branch_pizza_price",
+            "branch_extra_price",
+            "branch_burger_component_price",
+            "salad_ingredients",
+            "modifier_option")) {
+      var row = editor.state(access, TERMINAL).path("tables").path(table).get(0);
+      var values = catalogueValues(row);
+      values.put(
+          table.equals("modifier_option") ? "additional_price" : "price", new BigDecimal("-0.01"));
+      var edit = catalogueEdit(access, table, row, values, false, false);
+      assertEquals(
+          400,
+          assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, edit)).status());
+    }
+    var row = editor.state(access, TERMINAL).path("tables").path("ingredient").get(0);
+    var values = catalogueValues(row);
+    values.put("active", false);
+    editor.edit(access, TERMINAL, catalogueEdit(access, "ingredient", row, values, false, false));
+    assertFalse(editor.state(access, TERMINAL).path("warnings").isEmpty());
+    var relationship =
+        editor.state(access, TERMINAL).path("tables").path("pizza_default_ingredient").get(0);
+    editor.edit(
+        access,
+        TERMINAL,
+        catalogueEdit(
+            access,
+            "pizza_default_ingredient",
+            relationship,
+            catalogueValues(relationship),
+            true,
+            false));
+    var assignment =
+        catalogueEdit(
+            access, "pizza_default_ingredient", null, catalogueValues(relationship), false, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, assignment)).status());
+    var item = editor.state(access, TERMINAL).path("tables").path("menu_item").get(0);
+    var invalid = catalogueValues(item);
+    invalid.put("category_id", 999999);
+    var broken = catalogueEdit(access, "menu_item", item, invalid, false, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, broken)).status());
+    var allowed = editor.state(access, TERMINAL).path("tables").path("pizza_allowed_size").get(0);
+    var disallow =
+        catalogueEdit(access, "pizza_allowed_size", allowed, catalogueValues(allowed), true, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, disallow)).status());
+    var duplicate =
+        catalogueEdit(access, "pizza_allowed_size", null, catalogueValues(allowed), false, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, duplicate)).status());
+    var component =
+        editor.state(access, TERMINAL).path("tables").path("burger_item_default_component").get(0);
+    var identityChange = catalogueValues(component);
+    identityChange.put("component_id", 999999);
+    var changedKey =
+        catalogueEdit(
+            access, "burger_item_default_component", component, identityChange, false, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, changedKey)).status());
+    var foreignValues =
+        java.util.Map.<String, Object>of("branch_id", 2, "menu_item_id", 1, "price", 1);
+    var foreign =
+        catalogueEdit(access, "branch_menu_item_price", null, foreignValues, false, false);
+    assertEquals(
+        403,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, foreign)).status());
+    var group = editor.state(access, TERMINAL).path("tables").path("modifier_group").get(0);
+    invalid = catalogueValues(group);
+    invalid.put("min_select", 2);
+    invalid.put("max_select", 1);
+    var limits = catalogueEdit(access, "modifier_group", group, invalid, false, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, limits)).status());
+  }
+
+  @Test
+  void catalogueSharedRecipeConfirmationStaleEditsAndAtomicOutboxFailure() throws Exception {
+    String access = catalogueEditor();
+    var row = editor.state(access, TERMINAL).path("tables").path("burger_recipe_component").get(0);
+    var values = catalogueValues(row);
+    values.put("is_removable", false);
+    var unconfirmed = catalogueEdit(access, "burger_recipe_component", row, values, false, false);
+    assertEquals(
+        409,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, unconfirmed))
+            .status());
+    var confirmed = catalogueEdit(access, "burger_recipe_component", row, values, false, true);
+    assertEquals(1, editor.edit(access, TERMINAL, confirmed).path("affectedItems").size());
+    var stale =
+        new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+            UUID.randomUUID(), 0, confirmed.changes(), true);
+    assertEquals(
+        409, assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, stale)).status());
+    var state = editor.state(access, TERMINAL);
+    var next =
+        catalogueEdit(
+            access,
+            "burger_recipe_component",
+            state.path("tables").path("burger_recipe_component").get(0),
+            values,
+            false,
+            true);
+    ADMIN.execute(
+        "CREATE FUNCTION pos.reject_catalogue_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic outbox failure'; END $$");
+    ADMIN.execute(
+        "CREATE TRIGGER reject_catalogue_event BEFORE INSERT ON pos.outbox_event FOR EACH ROW EXECUTE FUNCTION pos.reject_catalogue_event()");
+    try {
+      assertThrows(
+          org.springframework.dao.DataAccessException.class,
+          () -> editor.edit(access, TERMINAL, next));
+    } finally {
+      ADMIN.execute("DROP TRIGGER reject_catalogue_event ON pos.outbox_event");
+      ADMIN.execute("DROP FUNCTION pos.reject_catalogue_event()");
+    }
+    assertEquals(state, editor.state(access, TERMINAL));
+    assertEquals(
+        0,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.command_receipt WHERE command_id=?",
+            Integer.class,
+            next.commandId()));
+  }
+
+  @Test
+  void catalogueConcurrentEditsPreserveDraftSnapshotsAndRemovedPricesBecomeUnavailable()
+      throws Exception {
+    String access = catalogueEditor();
+    var price =
+        runtime.queryForMap(
+            "SELECT p.price_id,p.revision FROM pos.branch_price p JOIN pos.catalog_item c USING(branch_id,item_id) WHERE c.source_type='branch_menu_item_price'");
+    var actor =
+        staff.authenticate(
+            (String)
+                staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token"),
+            TERMINAL);
+    UUID order = UUID.randomUUID();
+    operations.createDraft(
+        actor,
+        new LocalCommands.CreateDraft(
+            UUID.randomUUID(),
+            order,
+            List.of(
+                new LocalCommands.DraftLine(
+                    UUID.randomUUID(),
+                    (UUID) price.get("price_id"),
+                    ((Number) price.get("revision")).longValue(),
+                    1))));
+    String draft =
+        runtime.queryForObject(
+            "SELECT snapshot::text FROM pos.order_line WHERE order_id=?", String.class, order);
+    var row = editor.state(access, TERMINAL).path("tables").path("branch_menu_item_price").get(0);
+    var values = catalogueValues(row);
+    values.put("price", new BigDecimal("30.50"));
+    var first = catalogueEdit(access, "branch_menu_item_price", row, values, false, false);
+    var second =
+        new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+            UUID.randomUUID(), first.expectedRevision(), first.changes(), false);
+    var start = new java.util.concurrent.CountDownLatch(1);
+    try (var workers = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+      var results =
+          List.of(first, second).stream()
+              .map(
+                  command ->
+                      workers.submit(
+                          () -> {
+                            start.await();
+                            try {
+                              editor.edit(access, TERMINAL, command);
+                              return 200;
+                            } catch (LocalFailure failure) {
+                              return failure.status();
+                            }
+                          }))
+              .toList();
+      start.countDown();
+      var codes = new java.util.ArrayList<Integer>();
+      for (var result : results) codes.add(result.get());
+      codes.sort(Integer::compareTo);
+      assertEquals(List.of(200, 409), codes);
+    }
+    assertEquals(
+        draft,
+        runtime.queryForObject(
+            "SELECT snapshot::text FROM pos.order_line WHERE order_id=?", String.class, order));
+    row = editor.state(access, TERMINAL).path("tables").path("branch_menu_item_price").get(0);
+    editor.edit(
+        access,
+        TERMINAL,
+        catalogueEdit(access, "branch_menu_item_price", row, catalogueValues(row), true, false));
+    assertFalse(
+        runtime.queryForObject(
+            "SELECT available FROM pos.branch_price WHERE price_id=?",
+            Boolean.class,
+            price.get("price_id")));
+    assertEquals(
+        draft,
+        runtime.queryForObject(
+            "SELECT snapshot::text FROM pos.order_line WHERE order_id=?", String.class, order));
+  }
+
+  @Test
+  void catalogueEditsAuditedCloudSeedAndOwnerCanExplicitlyDelegateEditing() throws Exception {
+    emptyCatalogue();
+    var format = new za.co.onlinepos.server.catalogue.SnapshotFormat();
+    var seed =
+        json.readValue(
+            getClass().getResourceAsStream("/cloud-seed-branch1.json"),
+            za.co.onlinepos.contracts.CatalogueSnapshot.class);
+    catalogue.apply(
+        manager,
+        1,
+        new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+            UUID.randomUUID(), format.fingerprint(seed), seed));
+    assertEquals(
+        0,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.role_permission WHERE permission='catalogue.manage'",
+            Integer.class));
+    String owner = adminToken(true);
+    administration.editRole(
+        owner,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Administration.RoleEdit(
+            UUID.randomUUID(),
+            "CATALOGUE_EDITOR",
+            java.util.Set.of("module.catalogue", "catalogue.manage"),
+            -1));
+    var id =
+        runtime.queryForObject(
+            "SELECT staff_id FROM pos.staff WHERE username='manager'", UUID.class);
+    administration.editStaff(
+        owner,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Administration.StaffEdit(
+            UUID.randomUUID(),
+            id,
+            "manager",
+            true,
+            java.util.Set.of("MANAGER", "CATALOGUE_EDITOR"),
+            adminRow(owner, id).path("revision").asLong()));
+    String access = enter("012345", za.co.onlinepos.contracts.PosModule.CATALOGUE);
+    var row = editor.state(access, TERMINAL).path("tables").path("menu_item").get(0);
+    var values = catalogueValues(row);
+    values.put("description", "Edited locally");
+    editor.edit(access, TERMINAL, catalogueEdit(access, "menu_item", row, values, false, false));
+    assertEquals(1, editor.state(access, TERMINAL).path("revision").asLong());
+    assertEquals(
+        241, runtime.queryForObject("SELECT count(*) FROM pos.branch_price", Integer.class));
+    assertEquals(format.tree(seed), catalogue.catalogue(1).path("snapshot"));
+    assertEquals(
+        seed.counts().values().stream().mapToInt(Integer::intValue).sum(),
+        runtime.queryForObject("SELECT count(*) FROM pos.catalogue_record", Integer.class));
+    var updated =
+        editor
+            .state(access, TERMINAL)
+            .path("tables")
+            .path("menu_item")
+            .valueStream()
+            .filter(r -> r.path("id").equals(row.path("id")))
+            .findFirst()
+            .orElseThrow();
+    editor.edit(
+        access,
+        TERMINAL,
+        catalogueEdit(access, "menu_item", updated, catalogueValues(updated), false, false));
+    assertEquals(2, editor.state(access, TERMINAL).path("revision").asLong());
+  }
+
+  private java.util.Map<String, Boolean> tracking(boolean enabled) {
+    var result = new java.util.TreeMap<String, Boolean>();
+    for (var type : za.co.onlinepos.contracts.Auditing.EventType.values())
+      if (type.optional()) result.put(type.name(), enabled);
+    return result;
+  }
+
+  @Test
+  void auditDefaultsClassificationAndImmutablePrivileges() {
+    for (var type : za.co.onlinepos.contracts.Auditing.EventType.values())
+      assertTrue(audit.isTrackingEnabled(type));
+    ADMIN.update("UPDATE pos.audit_tracking_settings SET enabled=false");
+    for (var type : za.co.onlinepos.contracts.Auditing.EventType.values()) {
+      UUID command = UUID.randomUUID();
+      audit.record(
+          manager.staffId(),
+          TERMINAL,
+          type.name(),
+          IDENTITY.clusterId(),
+          command,
+          java.util.Map.of("reason", "TEST"));
+      assertEquals(
+          type.optional() ? 0 : 1,
+          ADMIN.queryForObject(
+              "SELECT count(*) FROM pos.audit_record WHERE command_id=?", Integer.class, command));
+    }
+    for (String sql :
+        List.of(
+            "UPDATE pos.audit_record SET action='tampered'",
+            "DELETE FROM pos.audit_record",
+            "TRUNCATE pos.audit_record",
+            "UPDATE pos.audit_tracking_settings SET enabled=true",
+            "UPDATE pos.audit_policy SET revision=0"))
+      assertThrows(org.springframework.dao.DataAccessException.class, () -> runtime.execute(sql));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> ADMIN.execute("DELETE FROM pos.audit_record"));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> ADMIN.execute("TRUNCATE pos.audit_record"));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.execute(
+                "INSERT INTO pos.audit_record(audit_id,branch_id,actor_id,action,aggregate_id,details) VALUES(gen_random_uuid(),1,NULL,'STAFF_LOGIN',gen_random_uuid(),'{}')"));
+  }
+
+  @Test
+  void ownerApprovedPolicyIsVersionedIdempotentAndNeverContainsPin() throws Exception {
+    String access = adminToken(true);
+    var edit =
+        new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+            UUID.randomUUID(), 0, tracking(false), "012345");
+    var saved = auditPolicy.save(access, TERMINAL, edit);
+    assertEquals(1, saved.path("revision").asLong());
+    assertEquals(
+        saved,
+        auditPolicy.save(
+            access,
+            TERMINAL,
+            new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                edit.commandId(), 0, tracking(false), "")));
+    assertEquals(
+        1,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='AUDIT_SETTING_CHANGED'",
+            Integer.class));
+    assertEquals(
+        false,
+        ((java.util.Map<?, ?>) auditPolicy.settings(access, TERMINAL).get("settings"))
+            .get("DRAFT_CANCELLED"));
+    assertThrows(
+        LocalFailure.class,
+        () ->
+            auditPolicy.save(
+                access,
+                TERMINAL,
+                new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                    edit.commandId(), 0, tracking(true), "012345")));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            auditPolicy.save(
+                access,
+                TERMINAL,
+                new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                    UUID.randomUUID(), 0, tracking(true), "012345")));
+    assertEquals(
+        0,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE details::text LIKE '%012345%'",
+            Integer.class));
+    assertEquals(
+        0,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.command_receipt WHERE result::text LIKE '%012345%'",
+            Integer.class));
+    var freshService = new za.co.onlinepos.server.local.AuditService(runtime, json, IDENTITY);
+    assertFalse(
+        freshService.isTrackingEnabled(
+            za.co.onlinepos.contracts.Auditing.EventType.DRAFT_CANCELLED));
+    http.perform(get("/api/local/admin/audit/settings").header("Authorization", "Bearer " + access))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.revision").value(1));
+  }
+
+  @Test
+  void auditOwnerPinFailuresThrottleAndDirectRequestsCannotBypassApproval() throws Exception {
+    String access = adminToken(false);
+    for (int n = 0; n < 5; n++)
+      assertEquals(
+          401,
+          assertThrows(
+                  LocalFailure.class,
+                  () ->
+                      auditPolicy.save(
+                          access,
+                          TERMINAL,
+                          new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                              UUID.randomUUID(), 0, tracking(false), "012345")))
+              .status());
+    assertEquals(
+        429,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    auditPolicy.save(
+                        access,
+                        TERMINAL,
+                        new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                            UUID.randomUUID(), 0, tracking(false), "012345")))
+            .status());
+    assertEquals(
+        5,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='OWNER_PIN_FAILED'",
+            Integer.class));
+    assertEquals(
+        0,
+        ADMIN.queryForObject(
+            "SELECT revision FROM pos.audit_policy WHERE branch_id=1", Long.class));
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/admin/audit/settings")
+                .contentType("application/json")
+                .content(
+                    json.writeValueAsString(
+                        new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                            UUID.randomUUID(), 0, tracking(false), "012345"))))
+        .andExpect(status().isUnauthorized());
+    assertTrue(
+        ADMIN.queryForObject(
+                "SELECT count(*) FROM pos.audit_record WHERE action='AUDIT_ACCESS_REFUSED'",
+                Integer.class)
+            > 0);
+  }
+
+  @Test
+  void optionalHistoryNeverSuppressesBusinessReceiptsOrOutbox() {
+    String access = adminToken(true);
+    // PIN provisioning revokes the fixture password actor; reacquire it through the existing
+    // recovery login.
+    String recovery =
+        (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
+    var actor = staff.authenticate(recovery, TERMINAL);
+    auditPolicy.save(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+            UUID.randomUUID(), 0, tracking(false), "012345"));
+    var command = UUID.randomUUID();
+    var edit = new LocalCommands.PriceEdit(command, 0, new BigDecimal("37.00"), true);
+    var result = operations.price(actor, PRICE, edit);
+    assertEquals(result, operations.price(actor, PRICE, edit));
+    assertEquals(
+        new BigDecimal("37.00"),
+        ADMIN.queryForObject(
+            "SELECT amount FROM pos.branch_price WHERE price_id=?", BigDecimal.class, PRICE));
+    assertEquals(
+        0,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE command_id=?", Integer.class, command));
+    assertEquals(
+        1,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.outbox_event WHERE event_type='PRICE_CHANGED'",
+            Integer.class));
+    assertEquals(
+        1,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.command_receipt WHERE command_id=?", Integer.class, command));
+    auditPolicy.save(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+            UUID.randomUUID(), 1, tracking(true), "012345"));
+    var next = new LocalCommands.PriceEdit(UUID.randomUUID(), 1, new BigDecimal("38.00"), true);
+    operations.price(actor, PRICE, next);
+    assertEquals(
+        1,
+        ADMIN.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='PRICE_CHANGED'", Integer.class));
+    assertTrue(
+        ADMIN
+            .queryForObject(
+                "SELECT details::text FROM pos.audit_record WHERE action='PRICE_CHANGED'",
+                String.class)
+            .contains("oldValues"));
+  }
+
+  @Test
+  void auditFailureRollsBackBusinessCommandAndOutbox() {
+    ADMIN.execute(
+        "CREATE FUNCTION pos.test_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='PRICE_CHANGED' THEN RAISE EXCEPTION 'test audit failure'; END IF; RETURN NEW; END $$");
+    ADMIN.execute(
+        "CREATE TRIGGER test_audit_failure BEFORE INSERT ON pos.audit_record FOR EACH ROW EXECUTE FUNCTION pos.test_audit_failure()");
+    UUID command = UUID.randomUUID();
+    try {
+      assertThrows(
+          org.springframework.dao.DataAccessException.class,
+          () ->
+              operations.price(
+                  manager,
+                  PRICE,
+                  new LocalCommands.PriceEdit(command, 0, new BigDecimal("99"), true)));
+      assertEquals(
+          new BigDecimal("25.50"),
+          ADMIN.queryForObject(
+              "SELECT amount FROM pos.branch_price WHERE price_id=?", BigDecimal.class, PRICE));
+      assertEquals(
+          0,
+          ADMIN.queryForObject(
+              "SELECT count(*) FROM pos.command_receipt WHERE command_id=?",
+              Integer.class,
+              command));
+      assertEquals(0, ADMIN.queryForObject("SELECT count(*) FROM pos.outbox_event", Integer.class));
+    } finally {
+      ADMIN.execute("DROP TRIGGER test_audit_failure ON pos.audit_record");
+      ADMIN.execute("DROP FUNCTION pos.test_audit_failure()");
+    }
+  }
+
+  @Test
+  void auditApprovalRejectsExpiredTamperedAndReplayedChangesAtDatabaseBoundary() {
+    String access = adminToken(true);
+    String initiator = CommandJournal.digest(access);
+    String fresh =
+        (String)
+            modules
+                .enterOwner(
+                    new za.co.onlinepos.server.local.ModuleAccess.Entry(
+                        "012345", za.co.onlinepos.contracts.PosModule.ADMINISTRATION),
+                    TERMINAL)
+                .get("token");
+    String proof = CommandJournal.digest(fresh);
+    UUID approval = UUID.randomUUID();
+    String values = journal.encode(tracking(false));
+    runtime.queryForObject(
+        "SELECT pos.issue_audit_approval(?,?,?,?,?::jsonb,?)",
+        Object.class,
+        approval,
+        initiator,
+        proof,
+        TERMINAL,
+        values,
+        0L);
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.apply_audit_policy(?,?,?,?,?::jsonb,?,?)",
+                Long.class,
+                approval,
+                initiator,
+                proof,
+                TERMINAL,
+                journal.encode(tracking(true)),
+                0L,
+                UUID.randomUUID()));
+    ADMIN.update(
+        "UPDATE pos.audit_approval SET expires_at=clock_timestamp()-interval '1 second' WHERE approval_id=?",
+        approval);
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.apply_audit_policy(?,?,?,?,?::jsonb,?,?)",
+                Long.class,
+                approval,
+                initiator,
+                proof,
+                TERMINAL,
+                values,
+                0L,
+                UUID.randomUUID()));
+    ADMIN.update(
+        "UPDATE pos.audit_approval SET expires_at=clock_timestamp()+interval '30 seconds' WHERE approval_id=?",
+        approval);
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT pos.apply_audit_policy(?,?,?,?,?::jsonb,?,?)",
+            Long.class,
+            approval,
+            initiator,
+            proof,
+            TERMINAL,
+            values,
+            0L,
+            UUID.randomUUID()));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.apply_audit_policy(?,?,?,?,?::jsonb,?,?)",
+                Long.class,
+                approval,
+                initiator,
+                proof,
+                TERMINAL,
+                values,
+                1L,
+                UUID.randomUUID()));
+    modules.discardApprovalSession(fresh);
+  }
+
+  @Test
+  void auditCursorDetailsSnapshotsRedactionAndDuplicateProtection() throws Exception {
+    ADMIN.update(
+        "INSERT INTO pos.role_permission VALUES(1,'MANAGER','audit.view') ON CONFLICT DO NOTHING");
+    String access = adminToken(true);
+    UUID command = UUID.randomUUID();
+    audit.record(
+        manager.staffId(),
+        TERMINAL,
+        "STAFF_CHANGED",
+        manager.staffId(),
+        command,
+        java.util.Map.of(
+            "changes",
+            java.util.Map.of("password", "hidden-password", "pin", "012345", "safe", "visible")));
+    audit.record(
+        manager.staffId(),
+        TERMINAL,
+        "STAFF_CHANGED",
+        manager.staffId(),
+        command,
+        java.util.Map.of(
+            "changes",
+            java.util.Map.of("password", "hidden-password", "pin", "012345", "safe", "visible")));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            audit.record(
+                manager.staffId(),
+                TERMINAL,
+                "STAFF_CHANGED",
+                manager.staffId(),
+                command,
+                java.util.Map.of("reason", "different")));
+    for (int n = 0; n < 55; n++)
+      audit.record(
+          manager.staffId(),
+          TERMINAL,
+          "STAFF_CHANGED",
+          manager.staffId(),
+          UUID.randomUUID(),
+          java.util.Map.of("reason", "PAGE_TEST"));
+    var search =
+        new za.co.onlinepos.server.local.AuditService.Search(
+            null, null, TERMINAL, "manager", null, "Security", "STAFF_CHANGED", "");
+    var page = audit.history(search);
+    assertEquals(50, ((List<?>) page.get("items")).size());
+    assertEquals(true, page.get("hasMore"));
+    var second =
+        audit.history(
+            new za.co.onlinepos.server.local.AuditService.Search(
+                null,
+                null,
+                TERMINAL,
+                "manager",
+                null,
+                "Security",
+                "STAFF_CHANGED",
+                (String) page.get("nextCursor")));
+    assertEquals(6, ((List<?>) second.get("items")).size());
+    UUID id =
+        ADMIN.queryForObject(
+            "SELECT audit_id FROM pos.audit_record WHERE command_id=?", UUID.class, command);
+    String details = json.writeValueAsString(audit.detail(id));
+    assertFalse(details.contains("hidden-password"));
+    assertFalse(details.contains("012345"));
+    http.perform(
+            get("/api/local/admin/audit/events/" + id).header("Authorization", "Bearer " + access))
+        .andExpect(status().isOk());
+    http.perform(
+            get("/api/local/admin/audit/events?category=Security&action=STAFF_CHANGED")
+                .header("Authorization", "Bearer " + access))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.length()").value(50));
+    assertEquals(
+        0,
+        ((List<?>)
+                audit
+                    .history(
+                        new za.co.onlinepos.server.local.AuditService.Search(
+                            null, null, "different-terminal", "", null, "", "", ""))
+                    .get("items"))
+            .size());
+    assertThrows(
+        LocalFailure.class,
+        () ->
+            audit.history(
+                new za.co.onlinepos.server.local.AuditService.Search(
+                    null, null, "", "", null, "", "", "invalid")));
+  }
+
+  @Test
+  void concurrentAuditPolicySavesHaveOneWinner() throws Exception {
+    String access = adminToken(true);
+    try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+      var tasks =
+          java.util.stream.IntStream.range(0, 2)
+              .mapToObj(
+                  n ->
+                      executor.submit(
+                          () -> {
+                            try {
+                              auditPolicy.save(
+                                  access,
+                                  TERMINAL,
+                                  new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+                                      UUID.randomUUID(), 0, tracking(false), "012345"));
+                              return true;
+                            } catch (org.springframework.dao.DataAccessException conflict) {
+                              return false;
+                            }
+                          }))
+              .toList();
+      int success = 0;
+      for (var task : tasks) if (task.get()) success++;
+      assertEquals(1, success);
+      assertEquals(
+          1,
+          ADMIN.queryForObject(
+              "SELECT revision FROM pos.audit_policy WHERE branch_id=1", Long.class));
+    }
   }
 }

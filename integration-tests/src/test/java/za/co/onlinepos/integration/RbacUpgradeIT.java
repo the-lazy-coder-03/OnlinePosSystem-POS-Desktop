@@ -83,4 +83,112 @@ class RbacUpgradeIT {
             .login(new StaffService.Login("existing.manager", password), "upgrade-test")
             .get("token"));
   }
+
+  @Test
+  void v3PinsAndPasswordsSurviveWithoutImplicitOwnerAssignment() {
+    var owner =
+        DatabaseTool.source(
+            System.getenv("POS_TEST_DATABASE_URL")
+                .replace("/pos_stage3_test", "/pos_stage3_restore"),
+            "pos_owner",
+            System.getenv("POS_TEST_OWNER_PASSWORD"));
+    var jdbc = new JdbcTemplate(owner);
+    jdbc.execute("DROP SCHEMA IF EXISTS pos CASCADE");
+    jdbc.execute("DROP TABLE IF EXISTS public.flyway_schema_history");
+    Flyway.configure()
+        .dataSource(owner)
+        .locations("classpath:db/migration")
+        .target("3")
+        .load()
+        .migrate();
+    var cluster = UUID.randomUUID();
+    var installation = UUID.randomUUID();
+    var id = UUID.randomUUID();
+    jdbc.update("INSERT INTO pos.store_identity VALUES (true,2,?,?)", cluster, installation);
+    jdbc.update("INSERT INTO pos.stream_head(branch_id) VALUES (2)");
+    String passwordHash = Passwords.hash(UUID.randomUUID().toString().toCharArray());
+    jdbc.update(
+        "INSERT INTO pos.staff(staff_id,branch_id,username,password_hash,role) VALUES (?,2,'preserved.manager',?,'MANAGER')",
+        id,
+        passwordHash);
+    String pinHash = Passwords.hashPin("000123".toCharArray());
+    String lookup = "a".repeat(64);
+    jdbc.update("INSERT INTO pos.staff_pin VALUES (2,?,?,?)", id, lookup, pinHash);
+    Flyway.configure().dataSource(owner).locations("classpath:db/migration").load().migrate();
+    assertEquals(
+        passwordHash,
+        jdbc.queryForObject(
+            "SELECT password_hash FROM pos.staff WHERE staff_id=?", String.class, id));
+    assertEquals(
+        pinHash,
+        jdbc.queryForObject("SELECT hash FROM pos.staff_pin WHERE staff_id=?", String.class, id));
+    assertEquals(
+        lookup,
+        jdbc.queryForObject("SELECT lookup FROM pos.staff_pin WHERE staff_id=?", String.class, id));
+    assertEquals(
+        true,
+        jdbc.queryForObject(
+            "SELECT password_login_enabled FROM pos.staff WHERE staff_id=?", Boolean.class, id));
+    assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM pos.store_owner", Integer.class));
+    assertEquals(
+        1,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM pos.role_permission WHERE branch_id=2 AND role_name='MANAGER' AND permission='audit.view'",
+            Integer.class));
+  }
+
+  @Test
+  void v4CatalogueSeedsEditableRecordsWithoutChangingImportedData() throws Exception {
+    var source =
+        DatabaseTool.source(
+            System.getenv("POS_TEST_DATABASE_URL")
+                .replace("/pos_stage3_test", "/pos_stage3_restore"),
+            "pos_owner",
+            System.getenv("POS_TEST_OWNER_PASSWORD"));
+    var jdbc = new JdbcTemplate(source);
+    jdbc.execute("DROP SCHEMA IF EXISTS pos CASCADE");
+    jdbc.execute("DROP TABLE IF EXISTS public.flyway_schema_history");
+    Flyway.configure()
+        .dataSource(source)
+        .locations("classpath:db/migration")
+        .target("4")
+        .load()
+        .migrate();
+    var cluster = UUID.randomUUID();
+    jdbc.update("INSERT INTO pos.store_identity VALUES(true,1,?,?)", cluster, UUID.randomUUID());
+    jdbc.update("INSERT INTO pos.stream_head(branch_id) VALUES(1)");
+    var json = new ObjectMapper();
+    var tables = json.readTree(getClass().getResourceAsStream("/catalogue-source-fixture.json"));
+    var snapshot = json.createObjectNode();
+    snapshot.set("tables", tables);
+    snapshot.put("branchId", 1).put("snapshotId", UUID.randomUUID().toString());
+    var id = UUID.randomUUID();
+    jdbc.update(
+        "INSERT INTO pos.catalogue_bootstrap(branch_id,snapshot_id,sha256,snapshot) VALUES(1,?, ?,?::jsonb)",
+        id,
+        "a".repeat(64),
+        snapshot.toString());
+    String before =
+        jdbc.queryForObject("SELECT snapshot::text FROM pos.catalogue_bootstrap", String.class);
+    Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
+    assertEquals(
+        before,
+        jdbc.queryForObject("SELECT snapshot::text FROM pos.catalogue_bootstrap", String.class));
+    assertEquals(
+        "a".repeat(64),
+        jdbc.queryForObject("SELECT sha256 FROM pos.catalogue_bootstrap", String.class));
+    assertEquals(
+        31, jdbc.queryForObject("SELECT count(*) FROM pos.catalogue_record", Integer.class));
+    assertEquals(
+        "[1,1,1]",
+        jdbc.queryForObject(
+            "SELECT source_id FROM pos.catalogue_record WHERE source_type='branch_pizza_price'",
+            String.class));
+    assertEquals(0, jdbc.queryForObject("SELECT revision FROM pos.catalogue_version", Long.class));
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM pos.role_permission WHERE permission='catalogue.manage'",
+            Integer.class));
+  }
 }
