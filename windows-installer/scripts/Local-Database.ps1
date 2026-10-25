@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][ValidateSet('BootstrapStaff','Backup','SetPin','AssignRoles','SetRole')][string]$Operation,[string]$Username,[string]$Destination,[string]$Role,[string]$Roles,[string]$Permissions,[switch]$PasswordStdin)
+param([Parameter(Mandatory=$true)][ValidateSet('BootstrapStaff','Backup','SetPin','AssignRoles','SetRole','SetOwner')][string]$Operation,[string]$Username,[string]$Destination,[string]$Role,[string]$Roles,[string]$Permissions,[switch]$PasswordStdin)
 $ErrorActionPreference='Stop'
 $credentialInput=@()
 function Invoke-DatabaseTool([string[]]$ToolArguments) {
@@ -43,6 +43,9 @@ if($Operation -eq 'BootstrapStaff') {
  if($Username -notmatch '^[a-z0-9._-]{3,64}$'){throw 'Supply a staff username'}
  Invoke-DatabaseTool -ToolArguments @('--database-tool=bootstrap-staff',"--username=$Username")
  if($LASTEXITCODE -ne 0){throw 'Staff bootstrap refused'}
+} elseif($Operation -eq 'SetOwner') {
+ if($Username -notmatch '^[a-z0-9._-]{3,64}$'){throw 'Supply a staff username'}
+ Invoke-DatabaseTool -ToolArguments @('--database-tool=set-owner',"--username=$Username")
 } elseif($Operation -eq 'SetPin') {
  if($Username -notmatch '^[a-z0-9._-]{3,64}$'){throw 'Supply a staff username'}
  Invoke-DatabaseTool -ToolArguments @('--database-tool=set-pin',"--username=$Username")

@@ -80,7 +80,8 @@ public class StaffService {
                 var row = rows.getFirst();
                 UUID id = (UUID) row.get("staff_id");
                 java.sql.Timestamp locked = (java.sql.Timestamp) row.get("locked_until");
-                if (!(Boolean) row.get("enabled")
+                if (!(Boolean) row.get("password_login_enabled")
+                    || !(Boolean) row.get("enabled")
                     || (locked != null && locked.toInstant().isAfter(java.time.Instant.now())))
                   return null;
                 if (!Passwords.matches(password, (String) row.get("password_hash"))) {
@@ -125,7 +126,7 @@ public class StaffService {
       throw new LocalFailure(401, "Staff session required");
     var actors =
         jdbc.query(
-            "SELECT s.staff_id,s.role,s.credential_version FROM pos.staff_session t JOIN pos.staff s ON s.staff_id=t.staff_id AND s.branch_id=t.branch_id WHERE t.token_hash=? AND t.branch_id=? AND t.terminal_identity=? AND t.expires_at>clock_timestamp() AND t.credential_version=s.credential_version AND s.enabled",
+            "SELECT s.staff_id,s.role,s.credential_version FROM pos.staff_session t JOIN pos.staff s ON s.staff_id=t.staff_id AND s.branch_id=t.branch_id WHERE t.token_hash=? AND t.branch_id=? AND t.terminal_identity=? AND t.expires_at>clock_timestamp() AND t.credential_version=s.credential_version AND s.enabled AND s.password_login_enabled",
             (rs, n) ->
                 new Actor(rs.getObject(1, UUID.class), rs.getString(2), terminal, rs.getLong(3)),
             CommandJournal.digest(token),
@@ -141,6 +142,12 @@ public class StaffService {
 
   private void requireStaffManagement(Actor actor) {
     journal.requireActor(actor);
+    if (jdbc.queryForObject(
+            "SELECT count(*) FROM pos.store_owner WHERE branch_id=? AND staff_id=?",
+            Integer.class,
+            identity.branchId(),
+            actor.staffId())
+        == 1) return;
     if (jdbc.queryForObject(
             "SELECT count(*) FROM pos.staff_role r JOIN pos.role_permission p ON p.branch_id=r.branch_id AND p.role_name=r.role_name WHERE r.staff_id=? AND r.branch_id=? AND p.permission='staff.manage'",
             Integer.class,
@@ -198,6 +205,12 @@ public class StaffService {
         payload,
         () -> {
           requireStaffManagement(actor);
+          if (jdbc.queryForObject(
+                  "SELECT count(*) FROM pos.store_owner WHERE branch_id=? AND staff_id=?",
+                  Integer.class,
+                  identity.branchId(),
+                  edit.staffId())
+              != 0) throw new LocalFailure(403, "Use protected owner administration");
           var previous =
               jdbc.queryForList(
                   "SELECT role,enabled,revision FROM pos.staff WHERE staff_id=? AND branch_id=?",

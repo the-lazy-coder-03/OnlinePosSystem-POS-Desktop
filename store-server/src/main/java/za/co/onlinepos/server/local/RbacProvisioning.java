@@ -17,7 +17,7 @@ public final class RbacProvisioning {
   public static Set<String> allowedPermissions() {
     var result = new TreeSet<String>();
     for (var module : PosModule.values()) result.add(module.permission());
-    result.addAll(Set.of("staff.manage", "rbac.manage", "sales.layouts.edit"));
+    result.addAll(Set.of("staff.manage", "rbac.manage", "audit.view", "sales.layouts.edit"));
     return result;
   }
 
@@ -66,6 +66,10 @@ public final class RbacProvisioning {
                       identity.branchId(),
                       subject,
                       permission);
+                jdbc.update(
+                    "UPDATE pos.rbac_role SET revision=revision+1 WHERE branch_id=? AND name=?",
+                    identity.branchId(),
+                    subject);
               } else {
                 UUID staff =
                     jdbc.queryForObject(
@@ -74,7 +78,12 @@ public final class RbacProvisioning {
                         identity.branchId(),
                         subject);
                 aggregate = staff;
-                if (operation.equals("set-pin")) {
+                if (operation.equals("set-owner")) {
+                  jdbc.update(
+                      "INSERT INTO pos.store_owner(branch_id,staff_id) VALUES (?,?) ON CONFLICT(branch_id) DO UPDATE SET staff_id=excluded.staff_id",
+                      identity.branchId(),
+                      staff);
+                } else if (operation.equals("set-pin")) {
                   String hash = Passwords.hashPin(pin);
                   jdbc.update(
                       "INSERT INTO pos.staff_pin VALUES (?,?,?,?) ON CONFLICT (branch_id,staff_id) DO UPDATE SET lookup=excluded.lookup,hash=excluded.hash",

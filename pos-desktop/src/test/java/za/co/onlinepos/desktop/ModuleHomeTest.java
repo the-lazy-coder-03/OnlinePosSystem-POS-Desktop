@@ -36,13 +36,7 @@ import za.co.onlinepos.installation.TrustedStoreClient;
 class ModuleHomeTest {
   @BeforeAll
   static void startFx() throws Exception {
-    var started = new CountDownLatch(1);
-    Platform.startup(
-        () -> {
-          Platform.setImplicitExit(false);
-          started.countDown();
-        });
-    assertTrue(started.await(15, TimeUnit.SECONDS));
+    FxTestSupport.start();
   }
 
   private static <T> T fx(Callable<T> action) throws Exception {

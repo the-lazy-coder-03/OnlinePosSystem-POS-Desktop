@@ -204,10 +204,10 @@ public final class DatabaseTool {
         case "authorize" -> {
           /* Local management authentication above; no database mutation. */
         }
-        case "set-pin", "assign-roles", "set-role" -> {
+        case "set-pin", "assign-roles", "set-role", "set-owner" -> {
           String subject = option(args, operation.equals("set-role") ? "role" : "username");
           var values =
-              operation.equals("set-pin")
+              (operation.equals("set-pin") || operation.equals("set-owner"))
                   ? java.util.Set.<String>of()
                   : new java.util.HashSet<>(
                       java.util.Arrays.asList(

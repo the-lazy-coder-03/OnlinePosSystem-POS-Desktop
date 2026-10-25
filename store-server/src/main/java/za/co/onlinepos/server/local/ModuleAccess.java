@@ -71,10 +71,7 @@ public class ModuleAccess {
   public Set<String> permissions(UUID staff) {
     return new TreeSet<>(
         jdbc.queryForList(
-            "SELECT DISTINCT p.permission FROM pos.staff_role r JOIN pos.role_permission p ON p.branch_id=r.branch_id AND p.role_name=r.role_name WHERE r.branch_id=? AND r.staff_id=?",
-            String.class,
-            identity.branchId(),
-            staff));
+            "SELECT pos.admin_permissions(?,?)", String.class, identity.branchId(), staff));
   }
 
   public Map<String, Object> enter(Entry request, String terminal) {

@@ -32,9 +32,12 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   private final ExecutorService executor;
   private final java.util.function.LongSupplier clock;
   private final ModuleGateway gateway;
+  private final String storeLabel;
+  private AdministrationPanel administration;
   private final Label status = new Label("Checking store connection…");
   private final Label notice = new Label();
   private final GridPane grid = new GridPane();
+  private final VBox header;
   private final Timeline timer;
   private String token;
   private long lastActivity;
@@ -55,13 +58,17 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
       java.util.function.LongSupplier clock) {
     this.clock = clock;
     this.gateway = gateway;
+    this.storeLabel =
+        za.co.onlinepos.contracts.Branch.fromId(installation.branchId()).displayName()
+            + " · "
+            + installation.terminalName();
     this.executor = executor;
     getStyleClass().add("module-home");
     var title = new Label("OnlinePOS");
     title.getStyleClass().add("home-title");
     var identity =
         new Label("Store " + installation.branchId() + " · " + installation.terminalName());
-    var header = new VBox(6, title, identity, status, notice);
+    header = new VBox(6, title, identity, status, notice);
     header.setPadding(new Insets(24));
     setTop(header);
     grid.setId("module-grid");
@@ -264,6 +271,14 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   }
 
   private void showModule(PosModule module, String username) {
+    if (module == PosModule.ADMINISTRATION) {
+      administration =
+          new AdministrationPanel(
+              gateway, executor, token, storeLabel, username, this::lock, this::activity);
+      setTop(null);
+      setCenter(administration);
+      return;
+    }
     var heading = new Label(module.label());
     heading.getStyleClass().add("home-title");
     var lock = new Button("Home / Lock");
@@ -340,11 +355,16 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   }
 
   private void lock(String message) {
+    if (administration != null) {
+      administration.close();
+      administration = null;
+    }
     ++generation;
     String previous = token;
     token = null;
     pending = false;
     grid.setDisable(false);
+    setTop(header);
     setCenter(grid);
     notice.setText(message);
     if (previous != null) revoke(previous);
