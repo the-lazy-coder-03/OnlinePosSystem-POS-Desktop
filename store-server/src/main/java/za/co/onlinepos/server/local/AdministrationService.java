@@ -391,7 +391,7 @@ public class AdministrationService {
     args.add(page * 50);
     var rows =
         jdbc.queryForList(
-            "SELECT a.audit_id AS \"auditId\",a.occurred_at AS \"occurredAt\",a.actor_id AS \"actorId\",coalesce(s.username,'Protected local console') AS actor,a.action,a.aggregate_id AS target,a.command_id AS \"commandId\" FROM pos.audit_record a LEFT JOIN pos.staff s ON s.staff_id=a.actor_id AND s.branch_id=a.branch_id"
+            "SELECT a.audit_id AS \"auditId\",a.occurred_at AS \"occurredAt\",a.actor_id AS \"actorId\",coalesce(s.username,'Protected local console') AS actor,a.action,a.aggregate_id AS target,CASE WHEN a.action IN ('ADMIN_ROLE_CHANGED','RBAC_SET_ROLE') AND coalesce(a.details->>'name',a.details->>'subject','') ~ '^[A-Z][A-Z0-9_]{0,63}$' THEN coalesce(a.details->>'name',a.details->>'subject') ELSE coalesce(target_staff.username,'Store configuration') END AS \"targetName\",a.command_id AS \"commandId\" FROM pos.audit_record a LEFT JOIN pos.staff s ON s.staff_id=a.actor_id AND s.branch_id=a.branch_id LEFT JOIN pos.staff target_staff ON target_staff.staff_id=a.aggregate_id AND target_staff.branch_id=a.branch_id"
                 + where
                 + " ORDER BY a.occurred_at DESC,a.audit_id DESC LIMIT 51 OFFSET ?",
             args.toArray());

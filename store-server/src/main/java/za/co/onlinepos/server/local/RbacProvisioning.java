@@ -117,7 +117,10 @@ public final class RbacProvisioning {
                   identity.installationId(),
                   "RBAC_" + operation.toUpperCase(Locale.ROOT).replace('-', '_'),
                   aggregate,
-                  "{\"origin\":\"protected-owner-console\"}");
+                  za.co.onlinepos.installation.JsonFiles.JSON
+                      .valueToTree(
+                          java.util.Map.of("origin", "protected-owner-console", "subject", subject))
+                      .toString());
             });
   }
 }

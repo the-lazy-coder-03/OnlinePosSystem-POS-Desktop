@@ -1518,6 +1518,10 @@ class LocalPostgresIT {
             -1);
     var created = administration.editRole(access, TERMINAL, create);
     assertEquals(created, administration.editRole(access, TERMINAL, create));
+    var roleAudit =
+        json.valueToTree(
+            administration.audit(access, TERMINAL, 0, null, "ADMIN_ROLE_CHANGED", null, null));
+    assertEquals("AUDITOR", roleAudit.path("items").get(0).path("targetName").asText());
     UUID auditor = adminCreate(access, "auditor", java.util.Set.of("AUDITOR"));
     adminPin(access, auditor, "222333");
     String auditToken = enter("222333", za.co.onlinepos.contracts.PosModule.ADMINISTRATION);
@@ -1657,6 +1661,7 @@ class LocalPostgresIT {
     assertTrue(page0.path("hasMore").asBoolean());
     assertEquals(3, page1.path("items").size());
     assertFalse(page1.path("hasMore").asBoolean());
+    assertEquals("other", page0.path("items").get(0).path("targetName").asText());
     assertFalse(page0.toString().contains("AUDIT_SECRET"));
     assertFalse(page0.toString().contains("details"));
     assertFalse(

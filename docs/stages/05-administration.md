@@ -22,7 +22,8 @@ while Administration is open, preserving space for the forms.
   module entry and administrative actions. Role names are immutable after creation. Reserved future
   permissions are not selectable; existing roles containing them remain read-only in this panel.
 - Audit History is read-only, newest first, with staff/action/date filters and 50-row pages. Dates are
-  shown in the terminal's local timezone. Raw historical audit details are not returned by this API.
+  shown in the terminal's local timezone. Account/role names identify the target without requiring users to interpret UUIDs. Raw historical audit
+  details are not returned by this API.
 
 Switching sections, accounts or refreshing prompts before discarding edited staff/role forms. Cancel
 keeps the current form and sidebar selection. Home / Lock and five-minute inactivity locking clear the

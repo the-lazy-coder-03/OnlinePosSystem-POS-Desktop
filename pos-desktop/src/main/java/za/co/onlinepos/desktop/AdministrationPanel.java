@@ -843,7 +843,7 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
             "When:occurredAt",
             "Staff:actor",
             "Action:action",
-            "Target:target");
+            "Account / role:targetName");
     @SuppressWarnings("unchecked")
     var when = (TableColumn<JsonNode, String>) table.getColumns().getFirst();
     when.setCellValueFactory(
