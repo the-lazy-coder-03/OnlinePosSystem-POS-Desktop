@@ -125,3 +125,10 @@ Before Stage 4 edits, `./mvnw -B -ntp install` passed all modules against a newl
 PostgreSQL 16 cluster on macOS/JDK 25, including all 11 PostgreSQL integration scenarios. Existing
 uncommitted security/error-dispatch, HTTP regression, documentation and Windows smoke fixes were retained.
 The local Stage 3 implementation is verified; Windows client and CI release gates remain as above.
+
+## Subsequent Windows automated verification
+
+Windows CI run 40184668321 passed all 45 tests, including Windows credential/DPAPI tests, and completed
+protected staff bootstrap, real installed terminal TLS staff API, encrypted backup, and Master
+repair/uninstall/reinstall validation. See `04-windows-validation.md` for tested commit and artifacts.
+Windows 10/11 interactive UAC/reboot and separate-machine LAN acceptance remain pending.

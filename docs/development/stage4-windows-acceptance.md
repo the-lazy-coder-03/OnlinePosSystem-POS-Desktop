@@ -9,7 +9,7 @@ catalogue fixtures rather than current store/customer data. No sale or cloud syn
 
 Use the private `windows-development-installer` artifact from the successful validation run recorded in
 `docs/stages/04-windows-validation.md`. Also download both test-evidence artifacts. On Windows, GitHub CLI
-users may use `gh run download <run-id> --repo the-lazy-coder-03/OnlinePosSystem-POS-Desktop --name windows-development-installer`.
+users may use `gh run download 40184668321 --repo the-lazy-coder-03/OnlinePosSystem-POS-Desktop --name windows-development-installer`.
 Otherwise use that run's Artifacts section while signed in. Verify `Get-FileHash <installer.exe> -Algorithm
 SHA256` against `SHA256SUMS.txt`. These are unsigned development packages; production signing is separate.
 The installed desktop bundles Java/JavaFX and must launch without a separately installed JDK.

@@ -135,3 +135,10 @@ projects: 43 tests passed, two Windows-only tests skipped, zero failures/errors.
 branch-bound independently; every source record and all 478 persisted baseline amounts matched exactly.
 The same run covered import corruption/permission/replay/rollback and all Stage 3 database tests. Windows
 client validation and full quote-engine acceptance are not implied by these import tests.
+
+## Subsequent Windows automated verification
+
+The complete Windows Server 2025 CI run at tested commit c812696 passed all 45 tests with no skips and
+passed the installed-package catalogue import/replay/restart tests. See `04-windows-validation.md` for the
+run, artifacts, exact tested scope and remaining Windows 10/11 manual client gates. Earlier references to
+Windows skips in this report describe the macOS run and do not describe the subsequent Windows CI result.
