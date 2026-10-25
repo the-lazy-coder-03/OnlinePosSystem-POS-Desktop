@@ -16,6 +16,7 @@ public class LocalErrors {
 
   @ExceptionHandler({
     IllegalArgumentException.class,
+    java.time.DateTimeException.class,
     ArithmeticException.class,
     org.springframework.http.converter.HttpMessageNotReadableException.class
   })

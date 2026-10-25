@@ -121,7 +121,7 @@ public class LocalEndpoints {
         "acceptingSales",
         false,
         "catalogueImportImplemented",
-        false,
+        true,
         "cloudSyncEnabled",
         false,
         "automaticPromotionEnabled",

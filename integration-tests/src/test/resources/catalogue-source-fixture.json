@@ -1,0 +1,271 @@
+{
+  "branch": [
+    {
+      "branch_id": 1,
+      "name": "Kenridge",
+      "active": true
+    }
+  ],
+  "menu_category": [
+    {
+      "id": 1,
+      "name": "menu_category name",
+      "sort_order": 1,
+      "active": true
+    }
+  ],
+  "menu_item": [
+    {
+      "id": 1,
+      "category_id": 1,
+      "name": "menu_item name",
+      "description": "Representative source fixture",
+      "active": true,
+      "sort_order": 1,
+      "is_300ml": true,
+      "is_2l": true
+    }
+  ],
+  "branch_menu_item_price": [
+    {
+      "branch_id": 1,
+      "menu_item_id": 1,
+      "price": 2.5
+    }
+  ],
+  "modifier_group": [
+    {
+      "id": 1,
+      "name": "modifier_group name",
+      "required": true,
+      "min_select": 1,
+      "max_select": 1
+    }
+  ],
+  "modifier_option": [
+    {
+      "id": 1,
+      "group_id": 1,
+      "name": "modifier_option name",
+      "menu_item_id": 1,
+      "additional_price": 3.25
+    }
+  ],
+  "menu_item_modifier_group": [
+    {
+      "menu_item_id": 1,
+      "group_id": 1
+    }
+  ],
+  "burger_component": [
+    {
+      "component_id": 1,
+      "name": "burger_component name",
+      "component_type": "protein",
+      "active": true,
+      "seasonal": true
+    }
+  ],
+  "burger_recipe": [
+    {
+      "recipe_id": 1,
+      "name": "burger_recipe name",
+      "active": true
+    }
+  ],
+  "burger_recipe_component": [
+    {
+      "recipe_id": 1,
+      "component_id": 1,
+      "is_removable": true,
+      "sort_order": 1
+    }
+  ],
+  "burger_recipe_assignment": [
+    {
+      "burger_id": 1,
+      "recipe_id": 1,
+      "protein_quantity_required": 1,
+      "protein_required": true
+    }
+  ],
+  "burger_item_default_component": [
+    {
+      "burger_id": 1,
+      "component_id": 1,
+      "is_removable": true,
+      "sort_order": 1
+    }
+  ],
+  "branch_burger_component_price": [
+    {
+      "branch_id": 1,
+      "component_id": 1,
+      "price": 2.5
+    }
+  ],
+  "salad_ingredients": [
+    {
+      "id": 1,
+      "salad_id": 1,
+      "ingredient_name": "salad_ingredients ingredient_name",
+      "price": 2.5
+    }
+  ],
+  "pizza_category": [
+    {
+      "pizza_category_id": 1,
+      "name": "pizza_category name",
+      "sort_order": 1,
+      "active": true
+    }
+  ],
+  "pizza": [
+    {
+      "pizza_id": 1,
+      "pizza_category_id": 1,
+      "name": "pizza name",
+      "description": "Representative source fixture",
+      "sort_order": 1,
+      "active": true
+    }
+  ],
+  "pizza_size": [
+    {
+      "pizza_size_id": 1,
+      "cm": 30,
+      "sort_order": 1,
+      "active": true
+    }
+  ],
+  "pizza_allowed_size": [
+    {
+      "pizza_id": 1,
+      "pizza_size_id": 1
+    }
+  ],
+  "price_category": [
+    {
+      "price_category_id": 1,
+      "name": "price_category name",
+      "sort_order": 1,
+      "active": true
+    }
+  ],
+  "ingredient": [
+    {
+      "ingredient_id": 1,
+      "name": "ingredient name",
+      "price_category_id": 1,
+      "active": true,
+      "seasonal": true
+    }
+  ],
+  "pizza_default_ingredient": [
+    {
+      "pizza_id": 1,
+      "ingredient_id": 1,
+      "is_removable": true,
+      "default_qty": 1,
+      "sort_order": 1
+    }
+  ],
+  "branch_pizza_price": [
+    {
+      "branch_id": 1,
+      "pizza_id": 1,
+      "pizza_size_id": 1,
+      "price": 85.5
+    }
+  ],
+  "branch_extra_price": [
+    {
+      "branch_id": 1,
+      "price_category_id": 1,
+      "pizza_size_id": 1,
+      "price": 2.5
+    }
+  ],
+  "pizza_base_option": [
+    {
+      "pizza_base_option_id": 1,
+      "name": "pizza_base_option name",
+      "active": true
+    }
+  ],
+  "branch_pizza_base_option_price": [
+    {
+      "branch_id": 1,
+      "pizza_base_option_id": 1,
+      "pizza_size_id": 1,
+      "price": 2.5
+    }
+  ],
+  "special": [
+    {
+      "special_id": 1,
+      "code": "special code",
+      "branch_id": 1,
+      "name": "special name",
+      "description": "Representative source fixture",
+      "bundle_price": 110.0,
+      "active": true,
+      "archived": false,
+      "starts_on": null,
+      "ends_on": null,
+      "sort_order": 1
+    }
+  ],
+  "special_day": [
+    {
+      "special_id": 1,
+      "day_of_week": 1
+    }
+  ],
+  "special_component": [
+    {
+      "special_component_id": 1,
+      "special_id": 1,
+      "component_code": "special_component component_code",
+      "label": "special_component label",
+      "product_type": "PIZZA",
+      "quantity": 1,
+      "selection_mode": "INCLUDED",
+      "menu_category_id": null,
+      "pizza_category_id": 1,
+      "pizza_size_id": 1,
+      "allow_repeats": true,
+      "allow_customization": true,
+      "sort_order": 1
+    }
+  ],
+  "special_component_menu_item": [
+    {
+      "special_component_id": 1,
+      "menu_item_id": 1
+    }
+  ],
+  "special_component_pizza": [
+    {
+      "special_component_id": 1,
+      "pizza_id": 1
+    }
+  ],
+  "special_addon": [
+    {
+      "special_addon_id": 1,
+      "special_id": 1,
+      "addon_code": "special_addon addon_code",
+      "label": "special_addon label",
+      "product_type": "PIZZA",
+      "menu_item_id": null,
+      "pizza_id": 1,
+      "pizza_size_id": 1,
+      "price": 2.5,
+      "max_quantity": 1,
+      "allow_customization": true,
+      "active": true,
+      "sort_order": 1
+    }
+  ]
+}

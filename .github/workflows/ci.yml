@@ -62,6 +62,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $env:POS_TEST_FX="true"
           .\mvnw.cmd -B -ntp clean install
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Launch actual JavaFX setup window (Windows)

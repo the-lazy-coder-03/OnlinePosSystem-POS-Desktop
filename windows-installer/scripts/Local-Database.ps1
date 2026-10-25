@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][ValidateSet('BootstrapStaff','Backup')][string]$Operation,[string]$Username,[string]$Destination,[switch]$PasswordStdin)
+param([Parameter(Mandatory=$true)][ValidateSet('BootstrapStaff','Backup','SetPin','AssignRoles','SetRole')][string]$Operation,[string]$Username,[string]$Destination,[string]$Role,[string]$Roles,[string]$Permissions,[switch]$PasswordStdin)
 $ErrorActionPreference='Stop'
 $credentialInput=@()
 function Invoke-DatabaseTool([string[]]$ToolArguments) {
@@ -36,13 +36,22 @@ $jar=Join-Path $program 'server\store-server.jar'
 if($PasswordStdin){
  $reader=New-Object IO.StreamReader([Console]::OpenStandardInput(),[Text.Encoding]::UTF8)
  $credentialInput+= $reader.ReadLine()
- if($Operation -eq 'BootstrapStaff'){$credentialInput+= $reader.ReadLine()}
+ if($Operation -in @('BootstrapStaff','SetPin')){$credentialInput+= $reader.ReadLine()}
  if($credentialInput|Where-Object {$null -eq $_}){throw 'Credential input is incomplete'}
 }
 if($Operation -eq 'BootstrapStaff') {
  if($Username -notmatch '^[a-z0-9._-]{3,64}$'){throw 'Supply a staff username'}
  Invoke-DatabaseTool -ToolArguments @('--database-tool=bootstrap-staff',"--username=$Username")
  if($LASTEXITCODE -ne 0){throw 'Staff bootstrap refused'}
+} elseif($Operation -eq 'SetPin') {
+ if($Username -notmatch '^[a-z0-9._-]{3,64}$'){throw 'Supply a staff username'}
+ Invoke-DatabaseTool -ToolArguments @('--database-tool=set-pin',"--username=$Username")
+} elseif($Operation -eq 'AssignRoles') {
+ if($Username -notmatch '^[a-z0-9._-]{3,64}$' -or $Roles -notmatch '^[A-Z][A-Z0-9_]{0,63}(,[A-Z][A-Z0-9_]{0,63})*$'){throw 'Supply username and comma-separated role names'}
+ Invoke-DatabaseTool -ToolArguments @('--database-tool=assign-roles',"--username=$Username","--roles=$Roles")
+} elseif($Operation -eq 'SetRole') {
+ if($Role -notmatch '^[A-Z][A-Z0-9_]{0,63}$' -or $Permissions -notmatch '^[a-z._]+(,[a-z._]+)*$'){throw 'Supply role and comma-separated permissions'}
+ Invoke-DatabaseTool -ToolArguments @('--database-tool=set-role',"--role=$Role","--permissions=$Permissions")
 } else {
  Invoke-DatabaseTool -ToolArguments @('--database-tool=authorize')
  if($LASTEXITCODE -ne 0){throw 'Installation administrator authentication refused'}

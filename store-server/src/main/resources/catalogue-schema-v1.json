@@ -1,0 +1,1048 @@
+{
+  "branch": {
+    "keys": [
+      "branch_id"
+    ],
+    "columns": {
+      "branch_id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {}
+  },
+  "menu_category": {
+    "keys": [
+      "id"
+    ],
+    "columns": {
+      "id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {}
+  },
+  "menu_item": {
+    "keys": [
+      "id"
+    ],
+    "columns": {
+      "id": {
+        "type": "INT",
+        "required": true
+      },
+      "category_id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "description": {
+        "type": "TEXT",
+        "required": false
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      },
+      "is_300ml": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "is_2l": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {
+      "category_id": [
+        "menu_category",
+        "id"
+      ]
+    }
+  },
+  "branch_menu_item_price": {
+    "keys": [
+      "branch_id",
+      "menu_item_id"
+    ],
+    "columns": {
+      "branch_id": {
+        "type": "INT",
+        "required": true
+      },
+      "menu_item_id": {
+        "type": "INT",
+        "required": true
+      },
+      "price": {
+        "type": "DOUBLE",
+        "required": true
+      }
+    },
+    "references": {
+      "branch_id": [
+        "branch",
+        "branch_id"
+      ],
+      "menu_item_id": [
+        "menu_item",
+        "id"
+      ]
+    }
+  },
+  "modifier_group": {
+    "keys": [
+      "id"
+    ],
+    "columns": {
+      "id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "required": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "min_select": {
+        "type": "INT",
+        "required": true
+      },
+      "max_select": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {}
+  },
+  "modifier_option": {
+    "keys": [
+      "id"
+    ],
+    "columns": {
+      "id": {
+        "type": "INT",
+        "required": true
+      },
+      "group_id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "menu_item_id": {
+        "type": "INT",
+        "required": false
+      },
+      "additional_price": {
+        "type": "NUMERIC",
+        "required": true
+      }
+    },
+    "references": {
+      "group_id": [
+        "modifier_group",
+        "id"
+      ],
+      "menu_item_id": [
+        "menu_item",
+        "id"
+      ]
+    }
+  },
+  "menu_item_modifier_group": {
+    "keys": [
+      "menu_item_id",
+      "group_id"
+    ],
+    "columns": {
+      "menu_item_id": {
+        "type": "INT",
+        "required": true
+      },
+      "group_id": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {
+      "menu_item_id": [
+        "menu_item",
+        "id"
+      ],
+      "group_id": [
+        "modifier_group",
+        "id"
+      ]
+    }
+  },
+  "burger_component": {
+    "keys": [
+      "component_id"
+    ],
+    "columns": {
+      "component_id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "component_type": {
+        "type": "TEXT",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "seasonal": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {}
+  },
+  "burger_recipe": {
+    "keys": [
+      "recipe_id"
+    ],
+    "columns": {
+      "recipe_id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {}
+  },
+  "burger_recipe_component": {
+    "keys": [
+      "recipe_id",
+      "component_id"
+    ],
+    "columns": {
+      "recipe_id": {
+        "type": "INT",
+        "required": true
+      },
+      "component_id": {
+        "type": "INT",
+        "required": true
+      },
+      "is_removable": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {
+      "recipe_id": [
+        "burger_recipe",
+        "recipe_id"
+      ],
+      "component_id": [
+        "burger_component",
+        "component_id"
+      ]
+    }
+  },
+  "burger_recipe_assignment": {
+    "keys": [
+      "burger_id"
+    ],
+    "columns": {
+      "burger_id": {
+        "type": "INT",
+        "required": true
+      },
+      "recipe_id": {
+        "type": "INT",
+        "required": true
+      },
+      "protein_quantity_required": {
+        "type": "INT",
+        "required": true
+      },
+      "protein_required": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {
+      "burger_id": [
+        "menu_item",
+        "id"
+      ],
+      "recipe_id": [
+        "burger_recipe",
+        "recipe_id"
+      ]
+    }
+  },
+  "burger_item_default_component": {
+    "keys": [
+      "burger_id",
+      "component_id"
+    ],
+    "columns": {
+      "burger_id": {
+        "type": "INT",
+        "required": true
+      },
+      "component_id": {
+        "type": "INT",
+        "required": true
+      },
+      "is_removable": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {
+      "burger_id": [
+        "menu_item",
+        "id"
+      ],
+      "component_id": [
+        "burger_component",
+        "component_id"
+      ]
+    }
+  },
+  "branch_burger_component_price": {
+    "keys": [
+      "branch_id",
+      "component_id"
+    ],
+    "columns": {
+      "branch_id": {
+        "type": "INT",
+        "required": true
+      },
+      "component_id": {
+        "type": "INT",
+        "required": true
+      },
+      "price": {
+        "type": "NUMERIC",
+        "required": true
+      }
+    },
+    "references": {
+      "branch_id": [
+        "branch",
+        "branch_id"
+      ],
+      "component_id": [
+        "burger_component",
+        "component_id"
+      ]
+    }
+  },
+  "salad_ingredients": {
+    "keys": [
+      "id"
+    ],
+    "columns": {
+      "id": {
+        "type": "INT",
+        "required": true
+      },
+      "salad_id": {
+        "type": "INT",
+        "required": true
+      },
+      "ingredient_name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "price": {
+        "type": "DOUBLE",
+        "required": true
+      }
+    },
+    "references": {
+      "salad_id": [
+        "menu_item",
+        "id"
+      ]
+    }
+  },
+  "pizza_category": {
+    "keys": [
+      "pizza_category_id"
+    ],
+    "columns": {
+      "pizza_category_id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {}
+  },
+  "pizza": {
+    "keys": [
+      "pizza_id"
+    ],
+    "columns": {
+      "pizza_id": {
+        "type": "INT",
+        "required": true
+      },
+      "pizza_category_id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "description": {
+        "type": "TEXT",
+        "required": false
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {
+      "pizza_category_id": [
+        "pizza_category",
+        "pizza_category_id"
+      ]
+    }
+  },
+  "pizza_size": {
+    "keys": [
+      "pizza_size_id"
+    ],
+    "columns": {
+      "pizza_size_id": {
+        "type": "INT",
+        "required": true
+      },
+      "cm": {
+        "type": "INT",
+        "required": true
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {}
+  },
+  "pizza_allowed_size": {
+    "keys": [
+      "pizza_id",
+      "pizza_size_id"
+    ],
+    "columns": {
+      "pizza_id": {
+        "type": "INT",
+        "required": true
+      },
+      "pizza_size_id": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {
+      "pizza_id": [
+        "pizza",
+        "pizza_id"
+      ],
+      "pizza_size_id": [
+        "pizza_size",
+        "pizza_size_id"
+      ]
+    }
+  },
+  "price_category": {
+    "keys": [
+      "price_category_id"
+    ],
+    "columns": {
+      "price_category_id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {}
+  },
+  "ingredient": {
+    "keys": [
+      "ingredient_id"
+    ],
+    "columns": {
+      "ingredient_id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "price_category_id": {
+        "type": "INT",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "seasonal": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {
+      "price_category_id": [
+        "price_category",
+        "price_category_id"
+      ]
+    }
+  },
+  "pizza_default_ingredient": {
+    "keys": [
+      "pizza_id",
+      "ingredient_id"
+    ],
+    "columns": {
+      "pizza_id": {
+        "type": "INT",
+        "required": true
+      },
+      "ingredient_id": {
+        "type": "INT",
+        "required": true
+      },
+      "is_removable": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "default_qty": {
+        "type": "INT",
+        "required": true
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {
+      "pizza_id": [
+        "pizza",
+        "pizza_id"
+      ],
+      "ingredient_id": [
+        "ingredient",
+        "ingredient_id"
+      ]
+    }
+  },
+  "branch_pizza_price": {
+    "keys": [
+      "branch_id",
+      "pizza_id",
+      "pizza_size_id"
+    ],
+    "columns": {
+      "branch_id": {
+        "type": "INT",
+        "required": true
+      },
+      "pizza_id": {
+        "type": "INT",
+        "required": true
+      },
+      "pizza_size_id": {
+        "type": "INT",
+        "required": true
+      },
+      "price": {
+        "type": "DOUBLE",
+        "required": true
+      }
+    },
+    "references": {
+      "branch_id": [
+        "branch",
+        "branch_id"
+      ],
+      "pizza_id": [
+        "pizza",
+        "pizza_id"
+      ],
+      "pizza_size_id": [
+        "pizza_size",
+        "pizza_size_id"
+      ]
+    }
+  },
+  "branch_extra_price": {
+    "keys": [
+      "branch_id",
+      "price_category_id",
+      "pizza_size_id"
+    ],
+    "columns": {
+      "branch_id": {
+        "type": "INT",
+        "required": true
+      },
+      "price_category_id": {
+        "type": "INT",
+        "required": true
+      },
+      "pizza_size_id": {
+        "type": "INT",
+        "required": true
+      },
+      "price": {
+        "type": "DOUBLE",
+        "required": true
+      }
+    },
+    "references": {
+      "branch_id": [
+        "branch",
+        "branch_id"
+      ],
+      "price_category_id": [
+        "price_category",
+        "price_category_id"
+      ],
+      "pizza_size_id": [
+        "pizza_size",
+        "pizza_size_id"
+      ]
+    }
+  },
+  "pizza_base_option": {
+    "keys": [
+      "pizza_base_option_id"
+    ],
+    "columns": {
+      "pizza_base_option_id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      }
+    },
+    "references": {}
+  },
+  "branch_pizza_base_option_price": {
+    "keys": [
+      "branch_id",
+      "pizza_base_option_id",
+      "pizza_size_id"
+    ],
+    "columns": {
+      "branch_id": {
+        "type": "INT",
+        "required": true
+      },
+      "pizza_base_option_id": {
+        "type": "INT",
+        "required": true
+      },
+      "pizza_size_id": {
+        "type": "INT",
+        "required": true
+      },
+      "price": {
+        "type": "DOUBLE",
+        "required": true
+      }
+    },
+    "references": {
+      "branch_id": [
+        "branch",
+        "branch_id"
+      ],
+      "pizza_base_option_id": [
+        "pizza_base_option",
+        "pizza_base_option_id"
+      ],
+      "pizza_size_id": [
+        "pizza_size",
+        "pizza_size_id"
+      ]
+    }
+  },
+  "special": {
+    "keys": [
+      "special_id"
+    ],
+    "columns": {
+      "special_id": {
+        "type": "BIGSERIAL",
+        "required": true
+      },
+      "code": {
+        "type": "TEXT",
+        "required": true
+      },
+      "branch_id": {
+        "type": "INT",
+        "required": true
+      },
+      "name": {
+        "type": "TEXT",
+        "required": true
+      },
+      "description": {
+        "type": "TEXT",
+        "required": false
+      },
+      "bundle_price": {
+        "type": "NUMERIC",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "archived": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "starts_on": {
+        "type": "DATE",
+        "required": false
+      },
+      "ends_on": {
+        "type": "DATE",
+        "required": false
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {
+      "branch_id": [
+        "branch",
+        "branch_id"
+      ]
+    }
+  },
+  "special_day": {
+    "keys": [
+      "special_id",
+      "day_of_week"
+    ],
+    "columns": {
+      "special_id": {
+        "type": "BIGINT",
+        "required": true
+      },
+      "day_of_week": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {
+      "special_id": [
+        "special",
+        "special_id"
+      ]
+    }
+  },
+  "special_component": {
+    "keys": [
+      "special_component_id"
+    ],
+    "columns": {
+      "special_component_id": {
+        "type": "BIGSERIAL",
+        "required": true
+      },
+      "special_id": {
+        "type": "BIGINT",
+        "required": true
+      },
+      "component_code": {
+        "type": "TEXT",
+        "required": true
+      },
+      "label": {
+        "type": "TEXT",
+        "required": true
+      },
+      "product_type": {
+        "type": "TEXT",
+        "required": true
+      },
+      "quantity": {
+        "type": "INT",
+        "required": true
+      },
+      "selection_mode": {
+        "type": "TEXT",
+        "required": true
+      },
+      "menu_category_id": {
+        "type": "INT",
+        "required": false
+      },
+      "pizza_category_id": {
+        "type": "INT",
+        "required": false
+      },
+      "pizza_size_id": {
+        "type": "INT",
+        "required": false
+      },
+      "allow_repeats": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "allow_customization": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {
+      "special_id": [
+        "special",
+        "special_id"
+      ],
+      "menu_category_id": [
+        "menu_category",
+        "id"
+      ],
+      "pizza_category_id": [
+        "pizza_category",
+        "pizza_category_id"
+      ],
+      "pizza_size_id": [
+        "pizza_size",
+        "pizza_size_id"
+      ]
+    }
+  },
+  "special_component_menu_item": {
+    "keys": [
+      "special_component_id",
+      "menu_item_id"
+    ],
+    "columns": {
+      "special_component_id": {
+        "type": "BIGINT",
+        "required": true
+      },
+      "menu_item_id": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {
+      "special_component_id": [
+        "special_component",
+        "special_component_id"
+      ],
+      "menu_item_id": [
+        "menu_item",
+        "id"
+      ]
+    }
+  },
+  "special_component_pizza": {
+    "keys": [
+      "special_component_id",
+      "pizza_id"
+    ],
+    "columns": {
+      "special_component_id": {
+        "type": "BIGINT",
+        "required": true
+      },
+      "pizza_id": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {
+      "special_component_id": [
+        "special_component",
+        "special_component_id"
+      ],
+      "pizza_id": [
+        "pizza",
+        "pizza_id"
+      ]
+    }
+  },
+  "special_addon": {
+    "keys": [
+      "special_addon_id"
+    ],
+    "columns": {
+      "special_addon_id": {
+        "type": "BIGSERIAL",
+        "required": true
+      },
+      "special_id": {
+        "type": "BIGINT",
+        "required": true
+      },
+      "addon_code": {
+        "type": "TEXT",
+        "required": true
+      },
+      "label": {
+        "type": "TEXT",
+        "required": true
+      },
+      "product_type": {
+        "type": "TEXT",
+        "required": true
+      },
+      "menu_item_id": {
+        "type": "INT",
+        "required": false
+      },
+      "pizza_id": {
+        "type": "INT",
+        "required": false
+      },
+      "pizza_size_id": {
+        "type": "INT",
+        "required": false
+      },
+      "price": {
+        "type": "NUMERIC",
+        "required": true
+      },
+      "max_quantity": {
+        "type": "INT",
+        "required": true
+      },
+      "allow_customization": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "active": {
+        "type": "BOOLEAN",
+        "required": true
+      },
+      "sort_order": {
+        "type": "INT",
+        "required": true
+      }
+    },
+    "references": {
+      "special_id": [
+        "special",
+        "special_id"
+      ],
+      "menu_item_id": [
+        "menu_item",
+        "id"
+      ],
+      "pizza_id": [
+        "pizza",
+        "pizza_id"
+      ],
+      "pizza_size_id": [
+        "pizza_size",
+        "pizza_size_id"
+      ]
+    }
+  }
+}

@@ -44,3 +44,11 @@ its exact JDK release and payload hashes. Maven Central supplies the POM-pinned 
 release-manifest.json hashes the actual bundled jars and JavaFX natives.
 Temurin 25 supports linking directly from the runtime image without a jmods directory (JEP 493), so
 Build-Package enumerates explicit JDK module names rather than relying on ALL-MODULE-PATH.
+
+## Stage 3 activation
+
+The backend now uses PostgreSQL JDBC 42.7.12, Flyway core/PostgreSQL 11.7.2 and the Boot-managed Hikari
+pool. Owner migrations run explicitly through the protected console tool; service startup only validates
+checksums and installation identity with the runtime account. Default health-only startup still has no
+database connection. H2 remains a bundled, unopened dependency; no emergency persistence is implemented.
+Development installers use application version 0.3.0; Maven module versions remain 0.1.0-SNAPSHOT.

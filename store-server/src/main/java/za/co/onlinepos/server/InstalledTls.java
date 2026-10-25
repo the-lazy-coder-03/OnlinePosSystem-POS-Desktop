@@ -43,6 +43,9 @@ public final class InstalledTls {
     config.put(
         "pos.database.password",
         new String(secrets.get("database-runtime"), java.nio.charset.StandardCharsets.UTF_8));
+    config.put(
+        "pos.pin-key",
+        new String(secrets.get("pin-key"), java.nio.charset.StandardCharsets.US_ASCII));
     return config;
   }
 }

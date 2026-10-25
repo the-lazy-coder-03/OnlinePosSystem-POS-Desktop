@@ -2,6 +2,7 @@ package za.co.onlinepos.installation;
 
 import java.net.InetAddress;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import javax.jmdns.JmDNS;
@@ -41,12 +42,34 @@ public final class MdnsDiscovery implements MasterDiscovery {
 
   public synchronized List<String> candidates() throws Exception {
     start();
-    List<String> results = new ArrayList<>();
+    var results = new LinkedHashSet<String>();
     for (JmDNS listener : listeners)
       for (ServiceInfo service : listener.list(TYPE, 1500))
-        results.add(
-            "https://" + service.getServer().replaceAll("\\.$", "") + ":" + service.getPort());
+        results.addAll(
+            endpoints(service.getServer(), service.getPort(), service.getInet4Addresses()));
     return List.copyOf(results);
+  }
+
+  // JmDNS can generate an address-derived DNS alias which is not a certificate SAN. The
+  // advertised addresses are candidates only: TrustedStoreClient still validates CA, SAN and
+  // branch.
+  static List<String> endpoints(String server, int port, java.net.Inet4Address[] addresses) {
+    if (port < 1 || port > 65535) return List.of();
+    var result = new LinkedHashSet<String>();
+    for (var address : addresses) result.add("https://" + address.getHostAddress() + ":" + port);
+    if (server != null) {
+      try {
+        var endpoint = java.net.URI.create("https://" + server.replaceAll("\\.$", "") + ":" + port);
+        if (endpoint.getHost() != null
+            && endpoint.getUserInfo() == null
+            && endpoint.getPath().isEmpty()
+            && endpoint.getQuery() == null
+            && endpoint.getFragment() == null) result.add(endpoint.toString());
+      } catch (IllegalArgumentException ignored) {
+        // A malformed discovery name must not hide usable advertised addresses.
+      }
+    }
+    return List.copyOf(result);
   }
 
   public synchronized void close() {

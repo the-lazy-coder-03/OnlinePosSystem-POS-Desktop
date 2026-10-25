@@ -94,3 +94,11 @@ rechecks staff version/role while holding the stream lock.
 No `/api/local/orders` sales endpoint, payment, staff JavaFX screens, catalogue import, cloud exchange,
 outbox sender or promotion endpoint exists. Health remains liveness with `acceptingSales=false`. Installed
 diagnostics reports local database readiness without connection strings, password hashes or tokens.
+
+## Stage 4 catalogue contract
+
+Authenticated manager POST `/api/local/branches/{branch}/catalogue/bootstrap` consumes a protocol-1
+`CatalogueSnapshot.Import` with command UUID, reviewed envelope SHA-256 and complete catalogue snapshot.
+Authenticated GET `/api/local/branches/{branch}/catalogue` returns retained baseline evidence plus current
+local effective prices. See `../stages/04-catalogue-bootstrap.md` for mapping, replay, cutover and rollback.
+No operational cloud export endpoint is introduced. The exporter reads an approved isolated restore.

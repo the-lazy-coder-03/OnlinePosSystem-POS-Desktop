@@ -21,6 +21,7 @@ public class FoundationSecurity {
       HttpSecurity http,
       ObjectProvider<TerminalRegistry> registry,
       ObjectProvider<StaffService> staff,
+      ObjectProvider<za.co.onlinepos.server.local.ModuleAccess> modules,
       Environment env)
       throws Exception {
     if (registry.getIfAvailable() != null || staff.getIfAvailable() != null) {
@@ -39,7 +40,7 @@ public class FoundationSecurity {
           if (!"127.0.0.1".equals(env.getProperty("server.address")))
             throw new IllegalStateException("Development local-store must bind loopback");
         }
-        var filter = new StaffAuthenticationFilter(staff.getObject(), dev);
+        var filter = new StaffAuthenticationFilter(staff.getObject(), dev, modules.getObject());
         if (registry.getIfAvailable() != null)
           http.addFilterAfter(filter, TerminalAuthenticationFilter.class);
         else http.addFilterBefore(filter, AnonymousAuthenticationFilter.class);
@@ -47,6 +48,8 @@ public class FoundationSecurity {
       return http.authorizeHttpRequests(
               requests ->
                   requests
+                      .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR)
+                      .permitAll()
                       .requestMatchers(HttpMethod.GET, "/api/local/health")
                       .permitAll()
                       .requestMatchers(HttpMethod.POST, "/api/local/setup/pair")
@@ -54,13 +57,21 @@ public class FoundationSecurity {
                       .requestMatchers(
                           HttpMethod.GET, "/api/local/identity", "/api/local/diagnostics")
                       .authenticated()
-                      .requestMatchers(HttpMethod.POST, "/api/local/auth/login")
+                      .requestMatchers(
+                          HttpMethod.POST, "/api/local/auth/login", "/api/local/modules/enter")
                       .hasAuthority("POS_TERMINAL")
+                      .requestMatchers(
+                          "/api/local/modules/me",
+                          "/api/local/modules/activity",
+                          "/api/local/modules/logout")
+                      .hasAuthority("POS_MODULE")
                       .requestMatchers(
                           "/api/local/menu",
                           "/api/local/auth/me",
                           "/api/local/auth/logout",
                           "/api/local/branches/*/menu",
+                          "/api/local/branches/*/catalogue",
+                          "/api/local/branches/*/catalogue/bootstrap",
                           "/api/local/branches/*/prices/*",
                           "/api/local/branches/*/drafts",
                           "/api/local/branches/*/drafts/*",
@@ -78,6 +89,8 @@ public class FoundationSecurity {
     return http.authorizeHttpRequests(
             requests ->
                 requests
+                    .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR)
+                    .permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/local/health")
                     .permitAll()
                     .anyRequest()

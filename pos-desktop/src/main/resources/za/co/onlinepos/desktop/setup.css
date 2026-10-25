@@ -14,3 +14,12 @@
 .validation { -fx-text-fill: #b42318; -fx-min-height: 23px; }
 .notice { -fx-text-fill: #536778; -fx-font-size: 13px; }
 .summary { -fx-font-size: 23px; -fx-line-spacing: 8px; }
+
+.module-home { -fx-background-color: #f3f6fa; }
+.home-title { -fx-font-size: 30px; -fx-font-weight: bold; -fx-text-fill: #152b45; }
+.module-tile { -fx-background-color: white; -fx-background-radius: 14; -fx-border-radius: 14; -fx-border-color: #d8e1eb; -fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #173a5e; -fx-padding: 18; -fx-alignment: center; -fx-text-alignment: center; }
+.module-tile:hover { -fx-background-color: #eaf3ff; }
+.module-tile:focused { -fx-border-color: #1262c4; -fx-border-width: 3; }
+
+.module-icon { -fx-fill: transparent; -fx-stroke: #173a5e; -fx-stroke-width: 1.7; -fx-stroke-line-cap: round; -fx-stroke-line-join: round; }
+.module-tile .label { -fx-text-fill: #173a5e; -fx-font-size: 20px; -fx-font-weight: bold; }

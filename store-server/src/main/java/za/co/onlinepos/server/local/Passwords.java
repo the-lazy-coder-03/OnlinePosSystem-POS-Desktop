@@ -14,6 +14,16 @@ public final class Passwords {
   public static String hash(char[] password) {
     if (password.length < 12 || password.length > 128)
       throw new IllegalArgumentException("Staff passwords require 12 to 128 characters");
+    return hashSecret(password);
+  }
+
+  public static String hashPin(char[] pin) {
+    if (!new String(pin).matches("[0-9]{6}"))
+      throw new IllegalArgumentException("Six digit PIN required");
+    return hashSecret(pin);
+  }
+
+  private static String hashSecret(char[] password) {
     byte[] salt = new byte[24];
     new SecureRandom().nextBytes(salt);
     return ITERATIONS

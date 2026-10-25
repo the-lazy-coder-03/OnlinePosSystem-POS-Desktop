@@ -17,11 +17,16 @@ import za.co.onlinepos.server.local.StaffService;
 
 public final class StaffAuthenticationFilter extends OncePerRequestFilter {
   private final StaffService staff;
+  private final za.co.onlinepos.server.local.ModuleAccess modules;
   private final String developmentTerminal;
   private final Map<String, long[]> attempts = new HashMap<>();
 
-  public StaffAuthenticationFilter(StaffService staff, String developmentTerminal) {
+  public StaffAuthenticationFilter(
+      StaffService staff,
+      String developmentTerminal,
+      za.co.onlinepos.server.local.ModuleAccess modules) {
     this.staff = staff;
+    this.modules = modules;
     this.developmentTerminal = developmentTerminal;
   }
 
@@ -60,11 +65,34 @@ public final class StaffAuthenticationFilter extends OncePerRequestFilter {
     }
     if ((List.of("POST", "PUT", "PATCH").contains(request.getMethod())
             && request.getContentLengthLong() < 0)
-        || request.getContentLengthLong() > 65536) {
+        || request.getContentLengthLong()
+            > (path.matches("/api/local/branches/[12]/catalogue/bootstrap") ? 16777216 : 65536)) {
       response.sendError(413);
       return;
     }
-    if (path.equals("/api/local/auth/login") && request.getMethod().equals("POST")) {
+    if (path.startsWith("/api/local/modules/") && !path.equals("/api/local/modules/enter")) {
+      String header = request.getHeader("Authorization");
+      try {
+        var session =
+            modules.authenticate(
+                header != null && header.startsWith("Bearer ") ? header.substring(7) : null,
+                terminal,
+                false);
+        request.setAttribute("pos.module", session);
+        SecurityContextHolder.getContext()
+            .setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                    session.staffId(), null, List.of(new SimpleGrantedAuthority("POS_MODULE"))));
+      } catch (LocalFailure failure) {
+        response.sendError(failure.status());
+        return;
+      }
+    } else if (path.equals("/api/local/modules/enter") && request.getMethod().equals("POST")) {
+      SecurityContextHolder.getContext()
+          .setAuthentication(
+              new UsernamePasswordAuthenticationToken(
+                  terminal, null, List.of(new SimpleGrantedAuthority("POS_TERMINAL"))));
+    } else if (path.equals("/api/local/auth/login") && request.getMethod().equals("POST")) {
       if (!loginAllowed(terminal)) {
         response.sendError(429);
         return;
@@ -80,6 +108,24 @@ public final class StaffAuthenticationFilter extends OncePerRequestFilter {
             staff.authenticate(
                 header != null && header.startsWith("Bearer ") ? header.substring(7) : null,
                 terminal);
+        var permissions = modules.permissions(actor.staffId());
+        String required =
+            path.equals("/api/local/staff")
+                ? "staff.manage"
+                : path.contains("/drafts")
+                    ? "module.sales_orders"
+                    : path.contains("/prices/") || path.endsWith("/catalogue/bootstrap")
+                        ? "module.catalogue"
+                        : null;
+        boolean catalogueRead =
+            path.equals("/api/local/menu") || path.endsWith("/menu") || path.endsWith("/catalogue");
+        if ((required != null && !permissions.contains(required))
+            || (catalogueRead
+                && !permissions.contains("module.sales_orders")
+                && !permissions.contains("module.catalogue"))) {
+          response.sendError(403);
+          return;
+        }
         request.setAttribute("pos.staff", actor);
         SecurityContextHolder.getContext()
             .setAuthentication(

@@ -1,0 +1,9 @@
+pos-installation/src/main/java/za/co/onlinepos/installation/MdnsDiscovery.java
+pos-installation/src/test/java/za/co/onlinepos/installation/MdnsDiscoveryTest.java
+docs/stages/04-windows11-client-validation.md
+docs/stages/04-windows-validation.md
+docs/stages/04-catalogue-bootstrap.md
+docs/stages/03-local-authority.md
+docs/development/stage4-windows-acceptance.md
+docs/roadmap.md
+MD files/README.md

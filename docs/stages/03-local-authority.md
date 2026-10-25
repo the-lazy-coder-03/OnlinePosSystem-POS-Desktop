@@ -3,7 +3,7 @@
 Stage 3 was explicitly authorized on 25 October 2026. This implementation is in the separate
 `OnlinePosSystem-POS-Desktop` repository. The operational cloud repository and databases are unchanged.
 JavaFX remains the desktop application, using Weld CDI; the backend remains a separate Spring service.
-Stage 4 is not authorized or started. No live-store deployment is authorized.
+Stage 4 was subsequently authorized in the 25 October request and follows Stage 3 local verification. No live-store deployment is authorized.
 
 ## Delivered scope
 
@@ -63,7 +63,7 @@ are created only by integration tests in disposable PostgreSQL databases; produc
 ## Validation
 
 Local `./mvnw -B -ntp install` passed with PostgreSQL 16.15 on macOS ARM64, JDK 25, format, Checkstyle,
-architecture rules and all available tests. Ten PostgreSQL integration scenarios cover:
+architecture rules and all available tests. Eleven PostgreSQL integration scenarios cover:
 
 1. Repeat migration, checksum tampering, wrong installation, runtime DDL/audit/delete denial, cross-branch foreign keys and one-time bootstrap.
 2. HTTP staff authentication, role and branch checks, login lockout, logout and unavailable sale routes.
@@ -75,6 +75,7 @@ architecture rules and all available tests. Ten PostgreSQL integration scenarios
 8. Actual `pg_dump`/`pg_restore` into a second isolated database, preserving identity, verifiers and command/event state.
 9. Exact cents beyond IEEE floating-point integer precision, including saved JSON replay.
 10. Registered certificate plus staff token, wrong-terminal token, insecure transport and immediate terminal revocation.
+11. Real HTTP server dispatch retains 401 for a missing staff session and 403 for denied branch/permission access.
 
 A separate Windows-only console test verifies that redirected UTF-8 credential input still requires the installation administrator, accepts its five-character policy and emits no credential text.
 
@@ -116,4 +117,27 @@ No rollback here changes cloud or branch ownership.
 ## Review
 
 Draft PR #4 is stacked on Stage 2 PR #3 until that review is merged. Stage 3 ends at review of this change,
-its CI artifacts and the remaining release gates. Stage 4 catalogue import needs explicit permission.
+its CI artifacts and the remaining release gates. Stage 4 catalogue import was subsequently authorized; see `04-catalogue-bootstrap.md`.
+
+## Continuation verification (25 October 2026)
+
+Before Stage 4 edits, `./mvnw -B -ntp install` passed all modules against a newly created disposable
+PostgreSQL 16 cluster on macOS/JDK 25, including all 11 PostgreSQL integration scenarios. Existing
+uncommitted security/error-dispatch, HTTP regression, documentation and Windows smoke fixes were retained.
+The local Stage 3 implementation is verified; Windows client and CI release gates remain as above.
+
+## Subsequent Windows automated verification
+
+Windows CI run 40184668321 passed all 45 tests, including Windows credential/DPAPI tests, and completed
+protected staff bootstrap, real installed terminal TLS staff API, encrypted backup, and Master
+repair/uninstall/reinstall validation. See `04-windows-validation.md` for tested commit and artifacts.
+Windows 10/11 interactive UAC/reboot and separate-machine LAN acceptance remain pending.
+
+## Real Windows 11 follow-up
+
+The disposable Windows 11 Pro client subsequently passed protected Master installation/repair, real staff
+TLS APIs, encrypted backup, independent-account effective file permissions, an approved actual OS reboot
+with automatic recovery, LAN trust/discovery, and data-preserving uninstall/reinstall. Corrected CI passed
+48 Windows tests. See `04-windows11-client-validation.md` for tested packages, retained test-manager
+handover and cleanup. Interactive UAC dialogs were not observed; Windows 10 and an actual separate Windows
+Slave remain unverified. These results do not authorize sales or production rollout.
