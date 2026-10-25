@@ -178,7 +178,7 @@ class LocalPostgresIT {
                 "INSERT INTO pos.local_customer(customer_id,branch_id,display_name) VALUES (?,2,'wrong branch')",
                 UUID.randomUUID()));
     assertEquals(
-        4,
+        5,
         ADMIN.queryForObject(
             "SELECT count(*) FROM public.flyway_schema_history WHERE success", Integer.class));
     assertThrows(
@@ -1716,5 +1716,496 @@ class LocalPostgresIT {
         assertThrows(LocalFailure.class, () -> adminPin(former, nextOwner, "666777")).status());
     // Existing password-based recovery for the original account remains available.
     assertNotNull(staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token"));
+  }
+
+  @Autowired za.co.onlinepos.server.catalogue.CatalogueManagementService editor;
+
+  private String catalogueEditor() throws Exception {
+    emptyCatalogue();
+    var f = new za.co.onlinepos.server.catalogue.SnapshotFormat();
+    var source = snapshot(1);
+    catalogue.apply(
+        manager,
+        1,
+        new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+            UUID.randomUUID(), f.fingerprint(source), source));
+    ADMIN.update("INSERT INTO pos.role_permission VALUES (1,'MANAGER','catalogue.manage')");
+    provisionPin("manager", "012345");
+    return enter("012345", za.co.onlinepos.contracts.PosModule.CATALOGUE);
+  }
+
+  private java.util.Map<String, Object> catalogueValues(JsonNode row) {
+    return json.convertValue(
+        row, new com.fasterxml.jackson.core.type.TypeReference<java.util.Map<String, Object>>() {});
+  }
+
+  private za.co.onlinepos.contracts.CatalogueManagement.Edit catalogueEdit(
+      String access,
+      String table,
+      JsonNode row,
+      java.util.Map<String, Object> values,
+      boolean remove,
+      boolean shared) {
+    var state = editor.state(access, TERMINAL);
+    List<Long> key = row == null ? null : new java.util.ArrayList<>();
+    if (row != null)
+      for (var k : state.path("schema").path(table).path("keys"))
+        key.add(row.path(k.asText()).longValue());
+    return new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+        UUID.randomUUID(),
+        state.path("revision").asLong(),
+        List.of(
+            new za.co.onlinepos.contracts.CatalogueManagement.Change(table, key, values, remove)),
+        shared);
+  }
+
+  @Test
+  void catalogueEditorUpdatesAllFamiliesWithoutChangingBootstrapOrStableIdentities()
+      throws Exception {
+    String access = catalogueEditor();
+    var original = catalogue.catalogue(1);
+    var ids =
+        runtime.queryForList("SELECT item_id,price_id FROM pos.branch_price ORDER BY price_id");
+    var state = editor.state(access, TERMINAL);
+    var changes = new java.util.ArrayList<za.co.onlinepos.contracts.CatalogueManagement.Change>();
+    for (var entry : state.path("tables").properties()) {
+      String table = entry.getKey();
+      for (var row : entry.getValue()) {
+        var values = catalogueValues(row);
+        if (values.containsKey("name")) values.put("name", "Edited " + table);
+        if (values.containsKey("ingredient_name"))
+          values.put("ingredient_name", "Edited salad ingredient");
+        if (values.containsKey("price")) values.put("price", new BigDecimal("12.50"));
+        if (values.containsKey("additional_price"))
+          values.put("additional_price", new BigDecimal("1.25"));
+        var key = new java.util.ArrayList<Long>();
+        for (var k : state.path("schema").path(table).path("keys"))
+          key.add(row.path(k.asText()).longValue());
+        changes.add(
+            new za.co.onlinepos.contracts.CatalogueManagement.Change(table, key, values, false));
+      }
+    }
+    var edit =
+        new za.co.onlinepos.contracts.CatalogueManagement.Edit(UUID.randomUUID(), 0, changes, true);
+    var saved = editor.edit(access, TERMINAL, edit);
+    assertEquals(1, saved.path("revision").asLong());
+    assertEquals(saved, editor.edit(access, TERMINAL, edit));
+    assertEquals(
+        ids,
+        runtime.queryForList("SELECT item_id,price_id FROM pos.branch_price ORDER BY price_id"));
+    assertEquals(original.path("snapshot"), catalogue.catalogue(1).path("snapshot"));
+    assertEquals(original.path("sha256"), catalogue.catalogue(1).path("sha256"));
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='CATALOGUE_CHANGED'",
+            Integer.class));
+    assertTrue(
+        runtime
+            .queryForObject(
+                "SELECT definition::text FROM pos.catalog_item WHERE source_type='branch_pizza_price'",
+                String.class)
+            .contains("Edited ingredient"));
+    assertEquals(
+        new BigDecimal("12.50"),
+        runtime.queryForObject(
+            "SELECT amount FROM pos.branch_price p JOIN pos.catalog_item c USING(branch_id,item_id) WHERE c.source_type='branch_menu_item_price'",
+            BigDecimal.class));
+  }
+
+  @Test
+  void catalogueCreatesMastersAndRelatedPricesAndRejectsRemovalOfMasters() throws Exception {
+    String access = catalogueEditor();
+    for (String table :
+        List.of(
+            "menu_category",
+            "menu_item",
+            "pizza_category",
+            "pizza",
+            "pizza_size",
+            "price_category",
+            "ingredient",
+            "pizza_base_option",
+            "burger_component",
+            "burger_recipe",
+            "modifier_group",
+            "modifier_option",
+            "salad_ingredients")) {
+      var row = editor.state(access, TERMINAL).path("tables").path(table).get(0);
+      var values = catalogueValues(row);
+      if (values.containsKey("name")) values.put("name", "New " + table);
+      if (values.containsKey("ingredient_name"))
+        values.put("ingredient_name", "New salad ingredient");
+      editor.edit(access, TERMINAL, catalogueEdit(access, table, null, values, false, true));
+      assertEquals(2, editor.state(access, TERMINAL).path("tables").path(table).size());
+    }
+    var newItem =
+        editor
+            .state(access, TERMINAL)
+            .path("tables")
+            .path("menu_item")
+            .valueStream()
+            .filter(r -> r.path("name").asText().equals("New menu_item"))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(newItem.path("id").asLong() >= 1000000000);
+    editor.edit(
+        access,
+        TERMINAL,
+        catalogueEdit(
+            access,
+            "branch_menu_item_price",
+            null,
+            java.util.Map.of(
+                "branch_id",
+                1,
+                "menu_item_id",
+                newItem.path("id").asLong(),
+                "price",
+                new BigDecimal("55.20")),
+            false,
+            false));
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.catalog_item WHERE description='New menu_item'",
+            Integer.class));
+    var remove = catalogueEdit(access, "menu_item", newItem, catalogueValues(newItem), true, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, remove)).status());
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/catalogue/records")
+                .header("Authorization", "Bearer " + access)
+                .contentType("application/json")
+                .content(
+                    json.writeValueAsBytes(
+                        catalogueEdit(
+                            access, "menu_item", newItem, catalogueValues(newItem), false, false))))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  void catalogueApiRequiresCatalogueModuleAndExplicitEditPermissionWithImmediateRevocation()
+      throws Exception {
+    String writable = catalogueEditor();
+    String access = writable;
+    http.perform(get("/api/local/catalogue/state").header("Authorization", "Bearer " + access))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.editable").value(true));
+    http.perform(get("/api/local/catalogue/state").header("Authorization", "Bearer " + token))
+        .andExpect(status().isUnauthorized());
+    String other = enter("012345", za.co.onlinepos.contracts.PosModule.ADMINISTRATION);
+    http.perform(get("/api/local/catalogue/state").header("Authorization", "Bearer " + other))
+        .andExpect(status().isForbidden());
+    assertEquals(
+        401,
+        assertThrows(LocalFailure.class, () -> editor.state(writable, "other-terminal")).status());
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> runtime.update("UPDATE pos.catalogue_record SET data='{}'"));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.apply_catalogue_change(?,?,0,'[]','[]')",
+                Long.class,
+                CommandJournal.digest(other),
+                TERMINAL));
+    ADMIN.update("DELETE FROM pos.role_permission WHERE permission='catalogue.manage'");
+    assertEquals(
+        401, assertThrows(LocalFailure.class, () -> editor.state(writable, TERMINAL)).status());
+    access = enter("012345", za.co.onlinepos.contracts.PosModule.CATALOGUE);
+    assertFalse(editor.state(access, TERMINAL).path("editable").asBoolean());
+    var row = editor.state(access, TERMINAL).path("tables").path("menu_item").get(0);
+    var edit = catalogueEdit(access, "menu_item", row, catalogueValues(row), false, false);
+    final String browse = access;
+    assertEquals(
+        403, assertThrows(LocalFailure.class, () -> editor.edit(browse, TERMINAL, edit)).status());
+    ADMIN.update("UPDATE pos.module_session SET expires_at=clock_timestamp()-interval '1 second'");
+    assertEquals(
+        401, assertThrows(LocalFailure.class, () -> editor.state(browse, TERMINAL)).status());
+  }
+
+  @Test
+  void catalogueValidatesPricesReferencesSizesAndInactiveIngredientAssignments() throws Exception {
+    String access = catalogueEditor();
+    for (String table :
+        List.of(
+            "branch_menu_item_price",
+            "branch_pizza_price",
+            "branch_extra_price",
+            "branch_burger_component_price",
+            "salad_ingredients",
+            "modifier_option")) {
+      var row = editor.state(access, TERMINAL).path("tables").path(table).get(0);
+      var values = catalogueValues(row);
+      values.put(
+          table.equals("modifier_option") ? "additional_price" : "price", new BigDecimal("-0.01"));
+      var edit = catalogueEdit(access, table, row, values, false, false);
+      assertEquals(
+          400,
+          assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, edit)).status());
+    }
+    var row = editor.state(access, TERMINAL).path("tables").path("ingredient").get(0);
+    var values = catalogueValues(row);
+    values.put("active", false);
+    editor.edit(access, TERMINAL, catalogueEdit(access, "ingredient", row, values, false, false));
+    assertFalse(editor.state(access, TERMINAL).path("warnings").isEmpty());
+    var relationship =
+        editor.state(access, TERMINAL).path("tables").path("pizza_default_ingredient").get(0);
+    editor.edit(
+        access,
+        TERMINAL,
+        catalogueEdit(
+            access,
+            "pizza_default_ingredient",
+            relationship,
+            catalogueValues(relationship),
+            true,
+            false));
+    var assignment =
+        catalogueEdit(
+            access, "pizza_default_ingredient", null, catalogueValues(relationship), false, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, assignment)).status());
+    var item = editor.state(access, TERMINAL).path("tables").path("menu_item").get(0);
+    var invalid = catalogueValues(item);
+    invalid.put("category_id", 999999);
+    var broken = catalogueEdit(access, "menu_item", item, invalid, false, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, broken)).status());
+    var allowed = editor.state(access, TERMINAL).path("tables").path("pizza_allowed_size").get(0);
+    var disallow =
+        catalogueEdit(access, "pizza_allowed_size", allowed, catalogueValues(allowed), true, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, disallow)).status());
+    var duplicate =
+        catalogueEdit(access, "pizza_allowed_size", null, catalogueValues(allowed), false, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, duplicate)).status());
+    var component =
+        editor.state(access, TERMINAL).path("tables").path("burger_item_default_component").get(0);
+    var identityChange = catalogueValues(component);
+    identityChange.put("component_id", 999999);
+    var changedKey =
+        catalogueEdit(
+            access, "burger_item_default_component", component, identityChange, false, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, changedKey)).status());
+    var foreignValues =
+        java.util.Map.<String, Object>of("branch_id", 2, "menu_item_id", 1, "price", 1);
+    var foreign =
+        catalogueEdit(access, "branch_menu_item_price", null, foreignValues, false, false);
+    assertEquals(
+        403,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, foreign)).status());
+    var group = editor.state(access, TERMINAL).path("tables").path("modifier_group").get(0);
+    invalid = catalogueValues(group);
+    invalid.put("min_select", 2);
+    invalid.put("max_select", 1);
+    var limits = catalogueEdit(access, "modifier_group", group, invalid, false, false);
+    assertEquals(
+        400,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, limits)).status());
+  }
+
+  @Test
+  void catalogueSharedRecipeConfirmationStaleEditsAndAtomicOutboxFailure() throws Exception {
+    String access = catalogueEditor();
+    var row = editor.state(access, TERMINAL).path("tables").path("burger_recipe_component").get(0);
+    var values = catalogueValues(row);
+    values.put("is_removable", false);
+    var unconfirmed = catalogueEdit(access, "burger_recipe_component", row, values, false, false);
+    assertEquals(
+        409,
+        assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, unconfirmed))
+            .status());
+    var confirmed = catalogueEdit(access, "burger_recipe_component", row, values, false, true);
+    assertEquals(1, editor.edit(access, TERMINAL, confirmed).path("affectedItems").size());
+    var stale =
+        new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+            UUID.randomUUID(), 0, confirmed.changes(), true);
+    assertEquals(
+        409, assertThrows(LocalFailure.class, () -> editor.edit(access, TERMINAL, stale)).status());
+    var state = editor.state(access, TERMINAL);
+    var next =
+        catalogueEdit(
+            access,
+            "burger_recipe_component",
+            state.path("tables").path("burger_recipe_component").get(0),
+            values,
+            false,
+            true);
+    ADMIN.execute(
+        "CREATE FUNCTION pos.reject_catalogue_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic outbox failure'; END $$");
+    ADMIN.execute(
+        "CREATE TRIGGER reject_catalogue_event BEFORE INSERT ON pos.outbox_event FOR EACH ROW EXECUTE FUNCTION pos.reject_catalogue_event()");
+    try {
+      assertThrows(
+          org.springframework.dao.DataAccessException.class,
+          () -> editor.edit(access, TERMINAL, next));
+    } finally {
+      ADMIN.execute("DROP TRIGGER reject_catalogue_event ON pos.outbox_event");
+      ADMIN.execute("DROP FUNCTION pos.reject_catalogue_event()");
+    }
+    assertEquals(state, editor.state(access, TERMINAL));
+    assertEquals(
+        0,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.command_receipt WHERE command_id=?",
+            Integer.class,
+            next.commandId()));
+  }
+
+  @Test
+  void catalogueConcurrentEditsPreserveDraftSnapshotsAndRemovedPricesBecomeUnavailable()
+      throws Exception {
+    String access = catalogueEditor();
+    var price =
+        runtime.queryForMap(
+            "SELECT p.price_id,p.revision FROM pos.branch_price p JOIN pos.catalog_item c USING(branch_id,item_id) WHERE c.source_type='branch_menu_item_price'");
+    var actor =
+        staff.authenticate(
+            (String)
+                staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token"),
+            TERMINAL);
+    UUID order = UUID.randomUUID();
+    operations.createDraft(
+        actor,
+        new LocalCommands.CreateDraft(
+            UUID.randomUUID(),
+            order,
+            List.of(
+                new LocalCommands.DraftLine(
+                    UUID.randomUUID(),
+                    (UUID) price.get("price_id"),
+                    ((Number) price.get("revision")).longValue(),
+                    1))));
+    String draft =
+        runtime.queryForObject(
+            "SELECT snapshot::text FROM pos.order_line WHERE order_id=?", String.class, order);
+    var row = editor.state(access, TERMINAL).path("tables").path("branch_menu_item_price").get(0);
+    var values = catalogueValues(row);
+    values.put("price", new BigDecimal("30.50"));
+    var first = catalogueEdit(access, "branch_menu_item_price", row, values, false, false);
+    var second =
+        new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+            UUID.randomUUID(), first.expectedRevision(), first.changes(), false);
+    var start = new java.util.concurrent.CountDownLatch(1);
+    try (var workers = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+      var results =
+          List.of(first, second).stream()
+              .map(
+                  command ->
+                      workers.submit(
+                          () -> {
+                            start.await();
+                            try {
+                              editor.edit(access, TERMINAL, command);
+                              return 200;
+                            } catch (LocalFailure failure) {
+                              return failure.status();
+                            }
+                          }))
+              .toList();
+      start.countDown();
+      var codes = new java.util.ArrayList<Integer>();
+      for (var result : results) codes.add(result.get());
+      codes.sort(Integer::compareTo);
+      assertEquals(List.of(200, 409), codes);
+    }
+    assertEquals(
+        draft,
+        runtime.queryForObject(
+            "SELECT snapshot::text FROM pos.order_line WHERE order_id=?", String.class, order));
+    row = editor.state(access, TERMINAL).path("tables").path("branch_menu_item_price").get(0);
+    editor.edit(
+        access,
+        TERMINAL,
+        catalogueEdit(access, "branch_menu_item_price", row, catalogueValues(row), true, false));
+    assertFalse(
+        runtime.queryForObject(
+            "SELECT available FROM pos.branch_price WHERE price_id=?",
+            Boolean.class,
+            price.get("price_id")));
+    assertEquals(
+        draft,
+        runtime.queryForObject(
+            "SELECT snapshot::text FROM pos.order_line WHERE order_id=?", String.class, order));
+  }
+
+  @Test
+  void catalogueEditsAuditedCloudSeedAndOwnerCanExplicitlyDelegateEditing() throws Exception {
+    emptyCatalogue();
+    var format = new za.co.onlinepos.server.catalogue.SnapshotFormat();
+    var seed =
+        json.readValue(
+            getClass().getResourceAsStream("/cloud-seed-branch1.json"),
+            za.co.onlinepos.contracts.CatalogueSnapshot.class);
+    catalogue.apply(
+        manager,
+        1,
+        new za.co.onlinepos.contracts.CatalogueSnapshot.Import(
+            UUID.randomUUID(), format.fingerprint(seed), seed));
+    assertEquals(
+        0,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.role_permission WHERE permission='catalogue.manage'",
+            Integer.class));
+    String owner = adminToken(true);
+    administration.editRole(
+        owner,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Administration.RoleEdit(
+            UUID.randomUUID(),
+            "CATALOGUE_EDITOR",
+            java.util.Set.of("module.catalogue", "catalogue.manage"),
+            -1));
+    var id =
+        runtime.queryForObject(
+            "SELECT staff_id FROM pos.staff WHERE username='manager'", UUID.class);
+    administration.editStaff(
+        owner,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Administration.StaffEdit(
+            UUID.randomUUID(),
+            id,
+            "manager",
+            true,
+            java.util.Set.of("MANAGER", "CATALOGUE_EDITOR"),
+            adminRow(owner, id).path("revision").asLong()));
+    String access = enter("012345", za.co.onlinepos.contracts.PosModule.CATALOGUE);
+    var row = editor.state(access, TERMINAL).path("tables").path("menu_item").get(0);
+    var values = catalogueValues(row);
+    values.put("description", "Edited locally");
+    editor.edit(access, TERMINAL, catalogueEdit(access, "menu_item", row, values, false, false));
+    assertEquals(1, editor.state(access, TERMINAL).path("revision").asLong());
+    assertEquals(
+        241, runtime.queryForObject("SELECT count(*) FROM pos.branch_price", Integer.class));
+    assertEquals(format.tree(seed), catalogue.catalogue(1).path("snapshot"));
+    assertEquals(
+        seed.counts().values().stream().mapToInt(Integer::intValue).sum(),
+        runtime.queryForObject("SELECT count(*) FROM pos.catalogue_record", Integer.class));
+    var updated =
+        editor
+            .state(access, TERMINAL)
+            .path("tables")
+            .path("menu_item")
+            .valueStream()
+            .filter(r -> r.path("id").equals(row.path("id")))
+            .findFirst()
+            .orElseThrow();
+    editor.edit(
+        access,
+        TERMINAL,
+        catalogueEdit(access, "menu_item", updated, catalogueValues(updated), false, false));
+    assertEquals(2, editor.state(access, TERMINAL).path("revision").asLong());
   }
 }

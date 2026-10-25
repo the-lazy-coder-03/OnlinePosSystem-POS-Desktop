@@ -46,3 +46,5 @@ Configured terminals open the grid; module shells remain unfinished and cannot a
 Stage 5 increment 2 implements [Administration staff and access](../docs/stages/05-administration.md):
 a sidebar for Overview, Staff, Roles & Permissions and Audit History, with a separately designated owner
 for PIN management. Owner setup uses the protected console; new staff accounts use PIN-only access.
+
+Catalogue Management now supports local item, ingredient, recipe, size, price and option editing with explicit RBAC. See [Stage 5 catalogue management](../docs/stages/05-catalogue-management.md).

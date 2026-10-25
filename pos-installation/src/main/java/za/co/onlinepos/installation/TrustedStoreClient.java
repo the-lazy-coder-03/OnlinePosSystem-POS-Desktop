@@ -177,6 +177,20 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
     return authenticatedRequest(invitation, secrets, path, method, body, token);
   }
 
+  public byte[] catalogueRequest(
+      Pairing.Invitation invitation,
+      SecretStore secrets,
+      String path,
+      String method,
+      byte[] body,
+      String token)
+      throws Exception {
+    if (!(path.equals("/api/local/catalogue/state") && method.equals("GET")
+        || path.equals("/api/local/catalogue/records") && method.equals("PUT")))
+      throw new IllegalArgumentException("Unsupported catalogue endpoint");
+    return authenticatedRequest(invitation, secrets, path, method, body, token);
+  }
+
   private byte[] authenticatedRequest(
       Pairing.Invitation invitation,
       SecretStore secrets,

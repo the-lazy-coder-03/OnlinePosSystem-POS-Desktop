@@ -33,3 +33,5 @@ reconcile existing shifts/orders/payments, restore a real backup, and rehearse b
 Stage 5 increment 1: [module home, PIN access and operations](stages/05-module-home.md).
 
 Stage 5 increment 2: [Administration staff/access, owner setup and recovery](stages/05-administration.md).
+
+Catalogue Management now supports local item, ingredient, recipe, size, price and option editing with explicit RBAC. See [Stage 5 catalogue management](stages/05-catalogue-management.md).

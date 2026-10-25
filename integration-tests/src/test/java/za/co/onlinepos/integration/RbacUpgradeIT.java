@@ -136,4 +136,59 @@ class RbacUpgradeIT {
             "SELECT count(*) FROM pos.role_permission WHERE branch_id=2 AND role_name='MANAGER' AND permission='audit.view'",
             Integer.class));
   }
+
+  @Test
+  void v4CatalogueSeedsEditableRecordsWithoutChangingImportedData() throws Exception {
+    var source =
+        DatabaseTool.source(
+            System.getenv("POS_TEST_DATABASE_URL")
+                .replace("/pos_stage3_test", "/pos_stage3_restore"),
+            "pos_owner",
+            System.getenv("POS_TEST_OWNER_PASSWORD"));
+    var jdbc = new JdbcTemplate(source);
+    jdbc.execute("DROP SCHEMA IF EXISTS pos CASCADE");
+    jdbc.execute("DROP TABLE IF EXISTS public.flyway_schema_history");
+    Flyway.configure()
+        .dataSource(source)
+        .locations("classpath:db/migration")
+        .target("4")
+        .load()
+        .migrate();
+    var cluster = UUID.randomUUID();
+    jdbc.update("INSERT INTO pos.store_identity VALUES(true,1,?,?)", cluster, UUID.randomUUID());
+    jdbc.update("INSERT INTO pos.stream_head(branch_id) VALUES(1)");
+    var json = new ObjectMapper();
+    var tables = json.readTree(getClass().getResourceAsStream("/catalogue-source-fixture.json"));
+    var snapshot = json.createObjectNode();
+    snapshot.set("tables", tables);
+    snapshot.put("branchId", 1).put("snapshotId", UUID.randomUUID().toString());
+    var id = UUID.randomUUID();
+    jdbc.update(
+        "INSERT INTO pos.catalogue_bootstrap(branch_id,snapshot_id,sha256,snapshot) VALUES(1,?, ?,?::jsonb)",
+        id,
+        "a".repeat(64),
+        snapshot.toString());
+    String before =
+        jdbc.queryForObject("SELECT snapshot::text FROM pos.catalogue_bootstrap", String.class);
+    Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
+    assertEquals(
+        before,
+        jdbc.queryForObject("SELECT snapshot::text FROM pos.catalogue_bootstrap", String.class));
+    assertEquals(
+        "a".repeat(64),
+        jdbc.queryForObject("SELECT sha256 FROM pos.catalogue_bootstrap", String.class));
+    assertEquals(
+        31, jdbc.queryForObject("SELECT count(*) FROM pos.catalogue_record", Integer.class));
+    assertEquals(
+        "[1,1,1]",
+        jdbc.queryForObject(
+            "SELECT source_id FROM pos.catalogue_record WHERE source_type='branch_pizza_price'",
+            String.class));
+    assertEquals(0, jdbc.queryForObject("SELECT revision FROM pos.catalogue_version", Long.class));
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM pos.role_permission WHERE permission='catalogue.manage'",
+            Integer.class));
+  }
 }

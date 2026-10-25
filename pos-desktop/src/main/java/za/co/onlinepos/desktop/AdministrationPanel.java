@@ -776,6 +776,7 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
       case "staff.manage" -> "Manage staff";
       case "rbac.manage" -> "Manage roles and permissions";
       case "audit.view" -> "View audit history";
+      case "catalogue.manage" -> "Manage catalogue items and ingredients";
       default -> permission;
     };
   }

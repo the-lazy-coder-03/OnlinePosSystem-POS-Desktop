@@ -17,7 +17,9 @@ public final class RbacProvisioning {
   public static Set<String> allowedPermissions() {
     var result = new TreeSet<String>();
     for (var module : PosModule.values()) result.add(module.permission());
-    result.addAll(Set.of("staff.manage", "rbac.manage", "audit.view", "sales.layouts.edit"));
+    result.addAll(
+        Set.of(
+            "staff.manage", "rbac.manage", "audit.view", "catalogue.manage", "sales.layouts.edit"));
     return result;
   }
 

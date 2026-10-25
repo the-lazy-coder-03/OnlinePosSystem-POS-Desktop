@@ -160,3 +160,5 @@ acceptance.
 
 [Changed-file inventory](stage5-administration-changed-files.txt) lists the increment against the
 preceding module-home revision. Changes are pushed on `codex/stage5-administration`; main is unchanged.
+
+The next Catalogue Management increment adds the separately assignable `catalogue.manage` action to Roles & Permissions. It is not granted automatically. See [catalogue operations and verification](05-catalogue-management.md).

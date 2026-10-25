@@ -43,7 +43,7 @@ public class AdministrationService {
   public static Set<String> implementedPermissions() {
     var result = new TreeSet<String>();
     for (var module : PosModule.values()) result.add(module.permission());
-    result.addAll(Set.of("staff.manage", "rbac.manage", "audit.view"));
+    result.addAll(Set.of("staff.manage", "rbac.manage", "audit.view", "catalogue.manage"));
     return result;
   }
 

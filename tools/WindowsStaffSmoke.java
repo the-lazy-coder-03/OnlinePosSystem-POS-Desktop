@@ -87,6 +87,7 @@ public class WindowsStaffSmoke {
       var logout = HttpRequest.newBuilder(base.resolve("/api/local/auth/logout")).header("Authorization", "Bearer " + token).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{}")).build();
       check(client.send(logout, HttpResponse.BodyHandlers.discarding()).statusCode() == 200, "Logout");
       get(client, base, "/api/local/menu", token, 401);
+      if(staffPin!=null && cashierPin!=null) catalogueManagement(client,base,staffPin,cashierPin,args.length==2);
     }
     System.out.println("WINDOWS_STAGE3_STAFF_TLS_API_OK");
   }
@@ -106,7 +107,7 @@ public class WindowsStaffSmoke {
     jsonRequest(client,base,"/api/local/admin/staff/options","GET",access,null,200);
     jsonRequest(client,base,"/api/local/admin/roles","GET",access,null,200);
     if(initial) {
-      jsonRequest(client,base,"/api/local/admin/roles","PUT",access,Map.of("commandId",java.util.UUID.randomUUID(),"name","CI_ADMIN_VIEWER","permissions",java.util.List.of("module.administration","audit.view"),"expectedRevision",-1),200);
+      jsonRequest(client,base,"/api/local/admin/roles","PUT",access,Map.of("commandId",java.util.UUID.randomUUID(),"name","CI_ADMIN_VIEWER","permissions",java.util.List.of("module.administration","audit.view","module.catalogue"),"expectedRevision",-1),200);
       var id=java.util.UUID.randomUUID();
       var create=Map.of("commandId",java.util.UUID.randomUUID(),"staffId",id,"username","ci.admin.cashier","enabled",true,"roles",java.util.List.of("CASHIER","CI_ADMIN_VIEWER"),"expectedRevision",-1);
       jsonRequest(client,base,"/api/local/admin/staff","PUT",access,create,200);
@@ -127,6 +128,41 @@ public class WindowsStaffSmoke {
     post(client,base,"/api/local/modules/logout",viewer,"{}",200);
     post(client,base,"/api/local/modules/logout",access,"{}",200);
     System.out.println("WINDOWS_ADMINISTRATION_OWNER_CRUD_AUDIT_TLS_OK");
+  }
+  private static void catalogueManagement(HttpClient client,URI base,String ownerPin,String viewerPin,boolean initial) throws Exception {
+    String admin=jsonRequest(client,base,"/api/local/modules/enter","POST",null,Map.of("pin",ownerPin,"module","ADMINISTRATION"),200).path("token").asText();
+    if(initial) {
+      jsonRequest(client,base,"/api/local/admin/roles","PUT",admin,Map.of("commandId",java.util.UUID.randomUUID(),"name","CI_CATALOGUE_EDITOR","permissions",java.util.List.of("module.catalogue","catalogue.manage"),"expectedRevision",-1),200);
+      var owner=jsonRequest(client,base,"/api/local/admin/staff?search=ci.manager&page=0","GET",admin,null,200).path("items").get(0);
+      jsonRequest(client,base,"/api/local/admin/staff","PUT",admin,Map.of("commandId",java.util.UUID.randomUUID(),"staffId",owner.path("staffId").asText(),"username","ci.manager","enabled",true,"roles",java.util.List.of("MANAGER","CI_CATALOGUE_EDITOR"),"expectedRevision",owner.path("revision").asLong()),200);
+      jsonRequest(client,base,"/api/local/admin/overview","GET",admin,null,401);
+    } else post(client,base,"/api/local/modules/logout",admin,"{}",200);
+    String access=jsonRequest(client,base,"/api/local/modules/enter","POST",null,Map.of("pin",ownerPin,"module","CATALOGUE"),200).path("token").asText();
+    var state=jsonRequest(client,base,"/api/local/catalogue/state","GET",access,null,200);
+    check(state.path("editable").asBoolean(),"Explicit catalogue permission");
+    if(initial) {
+      var category=state.path("tables").path("price_category").get(0).path("price_category_id").asLong();
+      var change=Map.of("table","ingredient","values",Map.of("name","CI catalogue ingredient","price_category_id",category,"active",true,"seasonal",false),"remove",false);
+      var command=Map.of("commandId",java.util.UUID.randomUUID(),"expectedRevision",state.path("revision").asLong(),"changes",java.util.List.of(change),"confirmSharedRecipe",false);
+      jsonRequest(client,base,"/api/local/catalogue/records","PUT",access,command,200);
+      jsonRequest(client,base,"/api/local/catalogue/records","PUT",access,command,200);
+      state=jsonRequest(client,base,"/api/local/catalogue/state","GET",access,null,200);
+      var item=state.path("tables").path("menu_item").get(0).deepCopy();
+      ((com.fasterxml.jackson.databind.node.ObjectNode)item).put("description","CI locally edited item");
+      var update=Map.of("table","menu_item","originalKey",java.util.List.of(item.path("id").asLong()),"values",item,"remove",false);
+      jsonRequest(client,base,"/api/local/catalogue/records","PUT",access,Map.of("commandId",java.util.UUID.randomUUID(),"expectedRevision",state.path("revision").asLong(),"changes",java.util.List.of(update),"confirmSharedRecipe",false),200);
+    }
+    state=jsonRequest(client,base,"/api/local/catalogue/state","GET",access,null,200);
+    check(state.path("revision").asLong()==2,"Catalogue revision persisted");
+    check(state.path("tables").path("ingredient").valueStream().anyMatch(r->r.path("name").asText().equals("CI catalogue ingredient")),"Created ingredient persisted");
+    check(state.path("tables").path("menu_item").valueStream().anyMatch(r->r.path("description").asText().equals("CI locally edited item")),"Edited item persisted");
+    jsonRequest(client,base,"/api/local/admin/staff","GET",access,null,403);
+    String viewer=jsonRequest(client,base,"/api/local/modules/enter","POST",null,Map.of("pin",viewerPin,"module","CATALOGUE"),200).path("token").asText();
+    check(!jsonRequest(client,base,"/api/local/catalogue/state","GET",viewer,null,200).path("editable").asBoolean(),"Read-only catalogue browse");
+    jsonRequest(client,base,"/api/local/catalogue/records","PUT",viewer,Map.of("commandId",java.util.UUID.randomUUID(),"expectedRevision",2,"changes",java.util.List.of(),"confirmSharedRecipe",false),403);
+    post(client,base,"/api/local/modules/logout",viewer,"{}",200);
+    post(client,base,"/api/local/modules/logout",access,"{}",200);
+    System.out.println("WINDOWS_CATALOGUE_ITEMS_INGREDIENTS_CRUD_TLS_OK");
   }
   private static String fingerprint(com.fasterxml.jackson.databind.JsonNode snapshot,com.fasterxml.jackson.databind.JsonNode schema) throws Exception {
     var normalized=(com.fasterxml.jackson.databind.node.ObjectNode)snapshot.deepCopy();

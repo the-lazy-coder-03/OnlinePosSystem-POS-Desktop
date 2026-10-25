@@ -71,7 +71,8 @@ public final class StaffAuthenticationFilter extends OncePerRequestFilter {
       return;
     }
     if ((path.startsWith("/api/local/modules/") && !path.equals("/api/local/modules/enter"))
-        || path.startsWith("/api/local/admin/")) {
+        || path.startsWith("/api/local/admin/")
+        || path.startsWith("/api/local/catalogue/")) {
       String header = request.getHeader("Authorization");
       try {
         var session =

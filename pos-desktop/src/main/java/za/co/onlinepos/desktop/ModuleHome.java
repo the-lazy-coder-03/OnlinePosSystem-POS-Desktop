@@ -34,6 +34,7 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   private final ModuleGateway gateway;
   private final String storeLabel;
   private AdministrationPanel administration;
+  private CataloguePanel catalogue;
   private final Label status = new Label("Checking store connection…");
   private final Label notice = new Label();
   private final GridPane grid = new GridPane();
@@ -271,6 +272,14 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   }
 
   private void showModule(PosModule module, String username) {
+    if (module == PosModule.CATALOGUE) {
+      catalogue =
+          new CataloguePanel(
+              gateway, executor, token, storeLabel, username, this::lock, this::activity);
+      setTop(null);
+      setCenter(catalogue);
+      return;
+    }
     if (module == PosModule.ADMINISTRATION) {
       administration =
           new AdministrationPanel(
@@ -355,6 +364,10 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   }
 
   private void lock(String message) {
+    if (catalogue != null) {
+      catalogue.close();
+      catalogue = null;
+    }
     if (administration != null) {
       administration.close();
       administration = null;
