@@ -825,10 +825,19 @@ class LocalPostgresIT {
     UUID price =
         za.co.onlinepos.server.catalogue.CatalogueImport.stable(
             1, "price", "branch_pizza_price", "[1,1,1]");
-    operations.price(
-        manager,
-        price,
-        new LocalCommands.PriceEdit(UUID.randomUUID(), 0, new BigDecimal("90.00"), true));
+    ADMIN.update("INSERT INTO pos.role_permission VALUES (1,'MANAGER','catalogue.manage')");
+    provisionPin("manager", "012345");
+    String access = enter("012345", za.co.onlinepos.contracts.PosModule.CATALOGUE);
+    var priceRow = editor.state(access, TERMINAL).path("tables").path("branch_pizza_price").get(0);
+    var priceValues = catalogueValues(priceRow);
+    priceValues.put("price", new BigDecimal("90.00"));
+    editor.edit(
+        access,
+        TERMINAL,
+        catalogueEdit(access, "branch_pizza_price", priceRow, priceValues, false, false));
+    token =
+        (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
+    manager = staff.authenticate(token, TERMINAL);
     catalogue.apply(manager, 1, command);
     assertEquals(
         new BigDecimal("90.00"),
@@ -1891,6 +1900,27 @@ class LocalPostgresIT {
       throws Exception {
     String writable = catalogueEditor();
     String access = writable;
+    String legacy =
+        (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
+    UUID importedPrice =
+        runtime.queryForObject("SELECT price_id FROM pos.branch_price LIMIT 1", UUID.class);
+    var legacyEdit =
+        new LocalCommands.PriceEdit(UUID.randomUUID(), 0, new BigDecimal("1.00"), true);
+    assertEquals(
+        403,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    operations.price(
+                        staff.authenticate(legacy, TERMINAL), importedPrice, legacyEdit))
+            .status());
+    http.perform(
+            patch("/api/local/branches/1/prices/" + importedPrice)
+                .header("Authorization", "Bearer " + legacy)
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(legacyEdit)))
+        .andExpect(status().isForbidden());
+
     http.perform(get("/api/local/catalogue/state").header("Authorization", "Bearer " + access))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.editable").value(true));

@@ -55,6 +55,13 @@ public class LocalOperations {
         "PRICE_CHANGED",
         Map.of("priceId", priceId, "edit", edit),
         () -> {
+          if (jdbc.queryForObject(
+                  "SELECT count(*) FROM pos.catalogue_version WHERE branch_id=?",
+                  Integer.class,
+                  identity.branchId())
+              != 0)
+            throw new LocalFailure(
+                403, "Use Catalogue Management to edit imported catalogue prices");
           int changed =
               jdbc.update(
                   "UPDATE pos.branch_price SET amount=?,available=?,revision=revision+1 WHERE branch_id=? AND price_id=? AND revision=?",
