@@ -168,6 +168,16 @@ final class SetupWizard extends BorderPane {
               throw new UnsupportedOperationException();
             }
           });
+      Label addressHint = new Label();
+      networks
+          .valueProperty()
+          .addListener(
+              (observable, old, selected) ->
+                  addressHint.setText(
+                      selected == null
+                          ? ""
+                          : (isSlave ? "Store network: " : "Master LAN IP: ")
+                              + selected.address()));
       Label progress = new Label("Checking local networks…");
       progress.setWrapText(true);
       presenter
@@ -258,6 +268,7 @@ final class SetupWizard extends BorderPane {
               administrator,
               masterAddress,
               networks,
+              addressHint,
               install,
               progress,
               back);

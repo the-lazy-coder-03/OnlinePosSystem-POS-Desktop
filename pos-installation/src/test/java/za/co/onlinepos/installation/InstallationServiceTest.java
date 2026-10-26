@@ -10,6 +10,27 @@ import za.co.onlinepos.contracts.InstallationRole;
 
 class InstallationServiceTest {
   @Test
+  void slaveUsesLanIpWithoutAnAdministratorPassword() throws Exception {
+    var called = new java.util.concurrent.atomic.AtomicBoolean();
+    var service =
+        new DefaultInstallationService(
+            (request, password) -> {
+              assertEquals("192.168.1.20", request.masterAddress());
+              assertEquals(0, password.length);
+              called.set(true);
+            });
+    service.install(
+        new SetupRequest(1, InstallationRole.SLAVE, "Counter", "", "192.168.1.20"), new char[0]);
+    assertEquals(true, called.get());
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            service.install(
+                new SetupRequest(1, InstallationRole.SLAVE, "Counter", "", "8.8.8.8"),
+                new char[0]));
+  }
+
+  @Test
   void injectedAdapterFailureDoesNotLeaveCallerPasswordInMemory() {
     char[] password = UUID.randomUUID().toString().substring(0, 5).toCharArray();
     InstallationService service =

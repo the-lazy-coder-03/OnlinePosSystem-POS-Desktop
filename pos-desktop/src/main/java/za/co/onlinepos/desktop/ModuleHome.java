@@ -37,6 +37,7 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   private CataloguePanel catalogue;
   private final Label status = new Label("Checking store connection…");
   private final Label notice = new Label();
+  private final Label masterAddress = new Label();
   private final GridPane grid = new GridPane();
   private final VBox header;
   private final Timeline timer;
@@ -72,7 +73,12 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
     title.getStyleClass().add("home-title");
     var identity =
         new Label("Store " + installation.branchId() + " · " + installation.terminalName());
-    header = new VBox(6, title, identity, status, notice);
+    masterAddress.setId("master-lan-address");
+    masterAddress.setVisible(
+        installation.role() == za.co.onlinepos.contracts.InstallationRole.MASTER
+            && !(gateway instanceof PreviewGateway));
+    masterAddress.setManaged(masterAddress.isVisible());
+    header = new VBox(6, title, identity, masterAddress, status, notice);
     header.setPadding(new Insets(24));
     setTop(header);
     grid.setId("module-grid");
@@ -176,9 +182,19 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
           } catch (Exception e) {
             connected = false;
           }
+          String lanAddress;
+          try {
+            lanAddress = gateway.localLanAddress();
+          } catch (Exception unavailable) {
+            lanAddress = "";
+          }
+          final String shownAddress = lanAddress;
           final boolean up = connected;
           Platform.runLater(
               () -> {
+                if (!closed)
+                  masterAddress.setText(
+                      shownAddress.isBlank() ? "" : "Master LAN IP: " + shownAddress);
                 checkingConnection = false;
                 connectionInterval =
                     up

@@ -27,6 +27,10 @@ public class ModuleGateway {
     return JsonFiles.JSON.readValue(secrets.get("pairing-trust"), Pairing.Invitation.class);
   }
 
+  public String localLanAddress() throws Exception {
+    return za.co.onlinepos.installation.LanPolicy.load(root).address();
+  }
+
   public void check() throws Exception {
     var secrets = secrets();
     client.identity(trust(secrets), secrets);
