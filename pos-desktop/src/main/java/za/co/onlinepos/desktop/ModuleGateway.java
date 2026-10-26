@@ -13,6 +13,7 @@ import za.co.onlinepos.installation.WindowsSecretStore;
 /** No session or PIN is written to disk. Called only on worker threads. */
 public class ModuleGateway {
   private final Path root;
+  private final TrustedStoreClient client = new TrustedStoreClient();
 
   public ModuleGateway(Path root) {
     this.root = root;
@@ -28,7 +29,7 @@ public class ModuleGateway {
 
   public void check() throws Exception {
     var secrets = secrets();
-    new TrustedStoreClient().identity(trust(secrets), secrets);
+    client.identity(trust(secrets), secrets);
   }
 
   public JsonNode enter(PosModule module, char[] pin) throws Exception {
@@ -48,9 +49,8 @@ public class ModuleGateway {
       throws Exception {
     var secrets = secrets();
     return JsonFiles.JSON.readTree(
-        new TrustedStoreClient()
-            .moduleRequest(
-                trust(secrets), secrets, "/api/local/modules/" + endpoint, method, body, token));
+        client.moduleRequest(
+            trust(secrets), secrets, "/api/local/modules/" + endpoint, method, body, token));
   }
 
   public JsonNode admin(String path, String method, Object payload, String token) throws Exception {
@@ -59,9 +59,8 @@ public class ModuleGateway {
     try {
       if (payload != null) body = JsonFiles.JSON.writeValueAsBytes(payload);
       return JsonFiles.JSON.readTree(
-          new TrustedStoreClient()
-              .adminRequest(
-                  trust(secrets), secrets, "/api/local/admin/" + path, method, body, token));
+          client.adminRequest(
+              trust(secrets), secrets, "/api/local/admin/" + path, method, body, token));
     } finally {
       if (body != null) Arrays.fill(body, (byte) 0);
     }
@@ -74,9 +73,8 @@ public class ModuleGateway {
     try {
       if (payload != null) body = JsonFiles.JSON.writeValueAsBytes(payload);
       return JsonFiles.JSON.readTree(
-          new TrustedStoreClient()
-              .catalogueRequest(
-                  trust(secrets), secrets, "/api/local/catalogue/" + path, method, body, token));
+          client.catalogueRequest(
+              trust(secrets), secrets, "/api/local/catalogue/" + path, method, body, token));
     } finally {
       if (body != null) Arrays.fill(body, (byte) 0);
     }

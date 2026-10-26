@@ -20,7 +20,8 @@ public final class InstalledTls {
     String password =
         new String(secrets.get("pki-password"), java.nio.charset.StandardCharsets.US_ASCII);
     Map<String, Object> config = new HashMap<>();
-    config.put("server.address", "0.0.0.0");
+    config.put("server.address", za.co.onlinepos.installation.LanPolicy.load(root).address());
+    config.put("server.forward-headers-strategy", "NONE");
     config.put(
         "server.port",
         Integer.toString(za.co.onlinepos.installation.NetworkSettings.load(root).httpsPort()));

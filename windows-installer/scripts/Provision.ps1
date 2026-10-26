@@ -49,7 +49,7 @@ function Assert-ProtectedMaterial([string]$Path) {
     if($rule.AccessControlType -eq 'Allow' -and ($rule.FileSystemRights -band $writeMask) -and $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -notin $trustedOwners){throw 'Configuration permits untrusted writes; administrator repair required'}
   }
 }
-foreach($name in @('administrator.json','installation.json','network.json','secrets','pairing','runtime','postgres-data','downloads')){
+foreach($name in @('administrator.json','installation.json','network.json','lan-policy.json','secrets','pairing','runtime','postgres-data','downloads')){
   Assert-ProtectedMaterial (Join-Path $data $name)
 }
 foreach($protectedFiles in @('secrets','downloads')){
@@ -64,7 +64,11 @@ try {
 Invoke-Tool -Arguments @('prepare',$resolved)
 $identity = Get-Content (Join-Path $data 'installation.json') -Raw | ConvertFrom-Json
 $role = $identity.role
-$httpsPort=8443;$postgresPort=55432;$storeSubnet='LocalSubnet'
+$httpsPort=8443;$postgresPort=55432
+$lan=Get-Content (Join-Path $data 'lan-policy.json') -Raw|ConvertFrom-Json
+$adapterName=[string]$lan.adapterName
+$storeAddress=[string]$lan.address
+$storeSubnet=$null
 $networkPath=Join-Path $data 'network.json'
 if(Test-Path $networkPath){
  $network=Get-Content $networkPath -Raw|ConvertFrom-Json
@@ -72,6 +76,7 @@ if(Test-Path $networkPath){
  if($network.storeSubnet){$storeSubnet=$network.storeSubnet}
  if($httpsPort -lt 1024 -or $httpsPort -gt 65535 -or $postgresPort -lt 1024 -or $postgresPort -gt 65535 -or $httpsPort -eq $postgresPort){throw 'Invalid network ports'}
 }
+if(-not $storeSubnet -or $storeSubnet -eq 'LocalSubnet'){throw 'An exact store subnet is required'}
 $journal = Join-Path $data 'provisioning.log'
 Add-Content $journal ('Prepared role '+$role+' at '+[DateTime]::UtcNow.ToString('o'))
 if ($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER') {
@@ -217,8 +222,12 @@ $databaseDependency
   if (Test-Path $pgdata) { & icacls.exe $pgdata /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 'NT SERVICE\OnlinePOSPostgres:(OI)(CI)F' | Out-Null }
   if ($role -eq 'BACKUP_MASTER') { Set-Service OnlinePOSStore -StartupType Disabled }
 }
+foreach($publicConfig in @('lan-policy.json','network.json')) {
+ & icacls.exe (Join-Path $data $publicConfig) /grant '*S-1-5-32-545:R' | Out-Null
+ if($role -eq 'MASTER' -or $role -eq 'BACKUP_MASTER'){& icacls.exe (Join-Path $data $publicConfig) /grant 'NT SERVICE\OnlinePOSStore:R'|Out-Null}
+}
 Remove-NetFirewallRule -Name OnlinePOS-Discovery -ErrorAction SilentlyContinue
-New-NetFirewallRule -Name OnlinePOS-Discovery -DisplayName 'OnlinePOS LAN discovery' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5353 -RemoteAddress $storeSubnet -Profile Private -Program (Join-Path $program 'desktop\OnlinePOS.exe') | Out-Null
+New-NetFirewallRule -Name OnlinePOS-Discovery -DisplayName 'OnlinePOS LAN discovery' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5353 -RemoteAddress $storeSubnet -InterfaceAlias $adapterName -Profile Private -Program (Join-Path $program 'desktop\OnlinePOS.exe') | Out-Null
 Invoke-Tool -Arguments @('complete')
 & icacls.exe (Join-Path $data 'installation.json') /grant '*S-1-5-32-545:R' | Out-Null
 if ($role -eq 'MASTER') {
@@ -226,12 +235,18 @@ if ($role -eq 'MASTER') {
     if ((Get-Service OnlinePOSStore).Status -ne 'Running') { throw 'HTTPS port 8443 is occupied' }
   }
   Remove-NetFirewallRule -Name OnlinePOS-MasterDiscovery -ErrorAction SilentlyContinue
-  New-NetFirewallRule -Name OnlinePOS-MasterDiscovery -DisplayName 'OnlinePOS Master discovery' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5353 -RemoteAddress $storeSubnet -Profile Private -Program $java | Out-Null
+  New-NetFirewallRule -Name OnlinePOS-MasterDiscovery -DisplayName 'OnlinePOS Master discovery' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5353 -RemoteAddress $storeSubnet -InterfaceAlias $adapterName -Profile Private -Program $java | Out-Null
   Remove-NetFirewallRule -Name OnlinePOS-HTTPS -ErrorAction SilentlyContinue
-  New-NetFirewallRule -Name OnlinePOS-HTTPS -DisplayName 'OnlinePOS trusted store HTTPS' -Direction Inbound -Action Allow -Protocol TCP -LocalPort $httpsPort -RemoteAddress $storeSubnet -Profile Private -Program $java | Out-Null
+  New-NetFirewallRule -Name OnlinePOS-HTTPS -DisplayName 'OnlinePOS trusted store HTTPS' -Direction Inbound -Action Allow -Protocol TCP -LocalAddress $storeAddress -LocalPort $httpsPort -RemoteAddress $storeSubnet -InterfaceAlias $adapterName -Profile Private -Program $java | Out-Null
   Set-Service OnlinePOSStore -StartupType Automatic
   Start-Service OnlinePOSStore
   Invoke-Tool -Arguments @('pair-local')
+  $refreshScript=Join-Path $program 'setup\Refresh-Network.ps1'
+  $action=New-ScheduledTaskAction -Execute (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Argument ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$refreshScript+'"')
+  $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
+  $startup=New-ScheduledTaskTrigger -AtStartup
+  $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 2) -StartWhenAvailable
+  Register-ScheduledTask -TaskName 'OnlinePOS-NetworkRefresh' -Action $action -Trigger @($trigger,$startup) -Settings $settings -User 'SYSTEM' -RunLevel Highest -Force | Out-Null
 }
 & icacls.exe $data /grant "$($requestOwner):(RX)" | Out-Null
 if(Test-Path (Join-Path $data 'secrets')) {

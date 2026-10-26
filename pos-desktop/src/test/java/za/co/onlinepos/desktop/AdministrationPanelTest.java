@@ -187,6 +187,24 @@ class AdministrationPanelTest {
       if (method.equals("GET") && path.startsWith("staff?"))
         return tree(Map.of("items", staff, "hasMore", false, "page", 0));
       if (method.equals("GET") && path.equals("roles")) return tree(roles);
+      if (method.equals("GET") && path.equals("terminals"))
+        return tree(
+            List.of(
+                Map.of(
+                    "terminalId",
+                    CASHIER,
+                    "name",
+                    "Front counter",
+                    "address",
+                    "192.168.1.20",
+                    "lastSeen",
+                    0,
+                    "online",
+                    false,
+                    "revoked",
+                    false)));
+      if (method.equals("PUT") && path.startsWith("terminals/"))
+        return tree(Map.of("updated", true));
       if (method.equals("GET") && path.startsWith("audit/events?"))
         return tree(
             Map.of(
@@ -374,6 +392,33 @@ class AdministrationPanelTest {
           javax.imageio.ImageIO.write(output, "png", Path.of("target", name + ".png").toFile());
           return null;
         });
+  }
+
+  @Test
+  void terminalInventoryAndRevocationRespectAdministrationAccess() throws Exception {
+    var gateway = new Gateway(true, ALL, true);
+    try (var view = open(gateway)) {
+      click(view, "#admin-tab-terminals");
+      await(
+          () ->
+              view.panel.lookup("#admin-terminals-table") != null
+                  && !view.panel.lookup("#admin-terminals-table").isDisabled());
+      fx(
+          () -> {
+            var list = table(view, "#admin-terminals-table");
+            assertEquals(1, list.getItems().size());
+            assertEquals("Offline", list.getItems().getFirst().path("online").asText());
+            list.getSelectionModel().selectFirst();
+            return null;
+          });
+      Platform.runLater(() -> ((Button) view.panel.lookup("#admin-terminal-revoke")).fire());
+      await(this::dialogVisible);
+      dismiss(ButtonType.YES);
+      await(() -> gateway.paths.contains("terminals/" + CASHIER));
+    }
+    try (var view = open(new Gateway(false, Set.of("module.administration"), true))) {
+      assertNull(fx(() -> view.panel.lookup("#admin-tab-terminals")));
+    }
   }
 
   @Test

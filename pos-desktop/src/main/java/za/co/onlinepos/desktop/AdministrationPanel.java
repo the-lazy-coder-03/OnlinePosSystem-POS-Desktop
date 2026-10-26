@@ -46,6 +46,7 @@ import za.co.onlinepos.installation.TrustedStoreClient;
 /** Session-local forms; closing clears inputs and ignores all outstanding responses. */
 final class AdministrationPanel extends BorderPane implements AutoCloseable {
   private AuditPanel auditPanel;
+  private final javafx.animation.Timeline terminalRefresh = new javafx.animation.Timeline();
   private final ModuleGateway gateway;
   private final ExecutorService executor;
   private final String token;
@@ -62,9 +63,8 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
   private String section = "Overview";
   private UUID command;
   private Dialog<?> dialog;
-  private int staffPage, auditPage;
+  private int staffPage;
   private String staffSearch = "";
-  private String auditActor = "", auditAction = "", auditFrom = "", auditTo = "";
 
   AdministrationPanel(
       ModuleGateway gateway,
@@ -117,6 +117,17 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     feedback.setId("admin-feedback");
     feedback.setPadding(new Insets(10, 24, 14, 24));
     setBottom(feedback);
+    terminalRefresh
+        .getKeyFrames()
+        .add(
+            new javafx.animation.KeyFrame(
+                javafx.util.Duration.seconds(10),
+                event -> {
+                  if (!closed && !busy && dialog == null && section.equals("Terminals"))
+                    loadTerminals();
+                }));
+    terminalRefresh.setCycleCount(javafx.animation.Timeline.INDEFINITE);
+    terminalRefresh.play();
     refreshContext();
   }
 
@@ -195,7 +206,10 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     tabs.clear();
     addTab("Overview", null);
     if (allowed("staff.manage")) addTab("Staff", "staff.manage");
-    if (allowed("rbac.manage")) addTab("Roles & Permissions", "rbac.manage");
+    if (allowed("rbac.manage")) {
+      addTab("Roles & Permissions", "rbac.manage");
+      addTab("Terminals", "rbac.manage");
+    }
     if (allowed("audit.view")) addTab("Audit History", "audit.view");
     addTab("Security / Audit Tracking", null);
   }
@@ -229,6 +243,7 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
               loadStaff(null);
             }
             case "Roles & Permissions" -> loadRoles(null);
+            case "Terminals" -> loadTerminals();
             case "Audit History" -> showAudit(false);
             case "Security / Audit Tracking" -> showAudit(true);
             default -> throw new IllegalStateException();
@@ -236,6 +251,104 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
         });
     tabs.put(name, button);
     navigation.getChildren().add(button);
+  }
+
+  private void loadTerminals() {
+    section = "Terminals";
+    selectTab(section);
+    work(
+        () -> get("terminals"),
+        rows -> {
+          var list =
+              table(
+                  "admin-terminals-table",
+                  "Name:name",
+                  "Local IP:address",
+                  "Online:online",
+                  "Revoked:revoked",
+                  "Last connection:lastSeen");
+          rows.forEach(
+              row -> {
+                var display = (com.fasterxml.jackson.databind.node.ObjectNode) row.deepCopy();
+                long seen = row.path("lastSeen").asLong();
+                display.put(
+                    "lastSeen",
+                    seen == 0
+                        ? "Never"
+                        : java.time.Instant.ofEpochMilli(seen)
+                            .atZone(java.time.ZoneId.systemDefault())
+                            .format(
+                                java.time.format.DateTimeFormatter.ofPattern(
+                                    "yyyy-MM-dd HH:mm:ss")));
+                display.put("online", row.path("online").asBoolean() ? "Online" : "Offline");
+                list.getItems().add(display);
+              });
+          var refresh = new Button("Refresh");
+          refresh.setOnAction(e -> loadTerminals());
+          var rename = new Button("Rename");
+          rename.setId("admin-terminal-rename");
+          rename.setOnAction(
+              e -> {
+                var row = list.getSelectionModel().getSelectedItem();
+                if (row == null) return;
+                var input = new javafx.scene.control.TextInputDialog(row.path("name").asText());
+                input.setTitle("Rename terminal");
+                input.setHeaderText("Terminal name");
+                dialog = input;
+                observeActivity(input);
+                if (getScene() != null) input.initOwner(getScene().getWindow());
+                input
+                    .showAndWait()
+                    .ifPresent(
+                        name ->
+                            work(
+                                () ->
+                                    gateway.admin(
+                                        "terminals/" + row.path("terminalId").asText(),
+                                        "PUT",
+                                        Map.of("name", name, "revoke", false),
+                                        token),
+                                ignored -> loadTerminals()));
+                dialog = null;
+              });
+          var revoke = new Button("Revoke access");
+          revoke.setId("admin-terminal-revoke");
+          revoke.setOnAction(
+              e -> {
+                var row = list.getSelectionModel().getSelectedItem();
+                if (row == null || row.path("revoked").asBoolean()) return;
+                var confirm =
+                    new Alert(
+                        Alert.AlertType.CONFIRMATION,
+                        "Revoke access for "
+                            + row.path("name").asText()
+                            + "? Protected maintenance will be required to enrol this terminal again.",
+                        ButtonType.YES,
+                        ButtonType.CANCEL);
+                dialog = confirm;
+                observeActivity(confirm);
+                if (getScene() != null) confirm.initOwner(getScene().getWindow());
+                boolean accepted =
+                    confirm.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.YES;
+                dialog = null;
+                if (accepted)
+                  work(
+                      () ->
+                          gateway.admin(
+                              "terminals/" + row.path("terminalId").asText(),
+                              "PUT",
+                              Map.of("revoke", true),
+                              token),
+                      ignored -> loadTerminals());
+              });
+          body.setCenter(
+              new VBox(
+                  16,
+                  title("Terminals"),
+                  new Label("New terminals join automatically from the configured store LAN."),
+                  list,
+                  new HBox(12, refresh, rename, revoke)));
+        });
   }
 
   private void selectTab(String name) {
@@ -798,6 +911,7 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
   @Override
   public void close() {
     closed = true;
+    terminalRefresh.stop();
     if (auditPanel != null) {
       auditPanel.close();
       auditPanel = null;

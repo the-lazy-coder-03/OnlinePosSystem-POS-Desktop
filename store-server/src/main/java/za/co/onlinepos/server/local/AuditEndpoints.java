@@ -54,7 +54,7 @@ public class AuditEndpoints {
   }
 
   @GetMapping("/events/{id}")
-  public Object detail(HttpServletRequest r, @PathVariable UUID id) {
+  public Object detail(HttpServletRequest r, @PathVariable("id") UUID id) {
     policy.require(token(r), terminal(r), true);
     return audit.detail(id);
   }
@@ -62,14 +62,14 @@ public class AuditEndpoints {
   @GetMapping("/events")
   public Object history(
       HttpServletRequest r,
-      @RequestParam(required = false) Instant from,
-      @RequestParam(required = false) Instant to,
-      @RequestParam(defaultValue = "") String terminal,
-      @RequestParam(defaultValue = "") String staff,
-      @RequestParam(required = false) UUID transaction,
-      @RequestParam(defaultValue = "") String category,
-      @RequestParam(defaultValue = "") String action,
-      @RequestParam(defaultValue = "") String cursor) {
+      @RequestParam(name = "from", required = false) Instant from,
+      @RequestParam(name = "to", required = false) Instant to,
+      @RequestParam(name = "terminal", defaultValue = "") String terminal,
+      @RequestParam(name = "staff", defaultValue = "") String staff,
+      @RequestParam(name = "transaction", required = false) UUID transaction,
+      @RequestParam(name = "category", defaultValue = "") String category,
+      @RequestParam(name = "action", defaultValue = "") String action,
+      @RequestParam(name = "cursor", defaultValue = "") String cursor) {
     policy.require(token(r), terminal(r), true);
     return audit.history(
         new AuditService.Search(from, to, terminal, staff, transaction, category, action, cursor));

@@ -44,6 +44,18 @@ public class SetupPresenter {
         executor);
   }
 
+  public CompletableFuture<java.util.List<za.co.onlinepos.installation.LanPolicy>> networks() {
+    return CompletableFuture.supplyAsync(
+        () -> {
+          try {
+            return za.co.onlinepos.installation.WindowsNetworks.available();
+          } catch (Exception e) {
+            throw new java.util.concurrent.CompletionException(e);
+          }
+        },
+        executor);
+  }
+
   public CompletableFuture<String> discover() {
     return CompletableFuture.supplyAsync(
         () -> {

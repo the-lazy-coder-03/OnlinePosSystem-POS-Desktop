@@ -48,6 +48,35 @@ public final class Pairing {
     }
   }
 
+  public record Bootstrap(
+      int version,
+      UUID installationId,
+      UUID clusterId,
+      int branchId,
+      String role,
+      String state,
+      String caCertificate,
+      String caFingerprint) {}
+
+  public record JoinRequest(
+      UUID clusterId, int branchId, UUID terminalId, String terminalName, String publicKey) {}
+
+  public record Challenge(String nonce, long expiresAt) {}
+
+  public record Enrolment(JoinRequest terminal, String nonce, String signature) {}
+
+  public static String proof(JoinRequest request, String nonce) throws Exception {
+    return JsonFiles.JSON.writeValueAsString(
+        java.util.List.of(
+            "OnlinePOS-LAN-v1",
+            request.clusterId(),
+            request.branchId(),
+            request.terminalId(),
+            request.terminalName(),
+            request.publicKey(),
+            nonce));
+  }
+
   public record Reply(UUID clusterId, int branchId, UUID terminalId, String clientCertificate) {}
 
   public record Identity(

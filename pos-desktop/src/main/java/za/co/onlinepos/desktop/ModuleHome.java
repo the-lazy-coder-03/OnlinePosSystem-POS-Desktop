@@ -44,6 +44,9 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   private long lastActivity;
   private long lastRefresh;
   private boolean pending;
+  private boolean checkingConnection;
+  private long lastConnectionCheck;
+  private long connectionInterval = java.time.Duration.ofSeconds(1).toNanos();
   private boolean closed;
   private long generation;
   private Dialog<ButtonType> pinDialog;
@@ -161,6 +164,9 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   }
 
   private void checkConnection() {
+    if (closed || checkingConnection) return;
+    checkingConnection = true;
+    lastConnectionCheck = clock.getAsLong();
     executor.execute(
         () -> {
           boolean connected;
@@ -173,6 +179,12 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
           final boolean up = connected;
           Platform.runLater(
               () -> {
+                checkingConnection = false;
+                connectionInterval =
+                    up
+                        ? java.time.Duration.ofSeconds(10).toNanos()
+                        : Math.min(
+                            java.time.Duration.ofSeconds(30).toNanos(), connectionInterval * 2);
                 if (!closed)
                   status.setText(
                       up ? "Store connected" : "Store unavailable · check the Master connection");
@@ -349,11 +361,8 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   void tick() {
     if (closed) return;
     long now = clock.getAsLong();
+    if (now - lastConnectionCheck >= connectionInterval) checkConnection();
     if (token == null) {
-      if (now - lastRefresh > java.time.Duration.ofSeconds(30).toNanos()) {
-        lastRefresh = now;
-        checkConnection();
-      }
       return;
     }
     if (now - lastActivity >= java.time.Duration.ofMinutes(5).toNanos()) {

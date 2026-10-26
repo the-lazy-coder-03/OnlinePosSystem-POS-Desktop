@@ -62,7 +62,7 @@ final class PreviewGateway extends ModuleGateway {
               "roleCount",
               0));
     }
-    if (path.equals("roles") || path.equals("staff/options"))
+    if (path.equals("roles") || path.equals("staff/options") || path.equals("terminals"))
       return JsonFiles.JSON.createArrayNode();
     return JsonFiles.JSON.valueToTree(Map.of("items", List.of(), "hasMore", false));
   }

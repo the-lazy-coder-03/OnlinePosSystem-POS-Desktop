@@ -440,19 +440,12 @@ class ModuleHomeTest {
               wizard.verifySmokeScenario();
               shell.applyCss();
               shell.layout();
-              var field =
+              ((javafx.scene.control.TextField) wizard.lookup("#master-lan-ip"))
+                  .setText("192.168.1.20");
+              assertTrue(
                   wizard.lookupAll(".password-field").stream()
-                      .map(PasswordField.class::cast)
-                      .findFirst()
-                      .orElseThrow();
-              field.setText(UUID.randomUUID().toString());
-              wizard.lookupAll(".button").stream()
-                  .filter(Button.class::isInstance)
-                  .map(Button.class::cast)
-                  .filter(b -> b.getText().equals("Install / resume setup"))
-                  .findFirst()
-                  .orElseThrow()
-                  .fire();
+                      .noneMatch(javafx.scene.Node::isVisible));
+              ((Button) wizard.lookup("#setup-connect")).fire();
               return null;
             });
         await(() -> shell.getCenter() instanceof ModuleHome);

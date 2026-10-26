@@ -37,7 +37,7 @@ public class WindowsStaffSmoke {
     String cashierPin=input.readLine();
     if(staffPassword!=null && staffPassword.startsWith("\uFEFF")) staffPassword=staffPassword.substring(1);
     try (var client = HttpClient.newBuilder().sslContext(tls).connectTimeout(java.time.Duration.ofSeconds(10)).build()) {
-      URI base = URI.create("https://localhost:8443");
+      URI base = URI.create("https://127.0.0.1:8443");
       var login = HttpRequest.newBuilder(base.resolve("/api/local/auth/login")).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(JsonFiles.JSON.writeValueAsString(Map.of("username", "ci.manager", "password", staffPassword)))).build();
       var response = client.send(login, HttpResponse.BodyHandlers.ofString());
       check(response.statusCode() == 200, "Staff login HTTP " + response.statusCode());

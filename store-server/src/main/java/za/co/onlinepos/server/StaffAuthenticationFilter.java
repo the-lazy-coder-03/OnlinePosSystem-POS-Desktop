@@ -46,6 +46,10 @@ public final class StaffAuthenticationFilter extends OncePerRequestFilter {
     if (List.of(
             "/api/local/health",
             "/api/local/setup/pair",
+            "/api/local/setup/bootstrap",
+            "/api/local/setup/challenge",
+            "/api/local/setup/enrol",
+            "/api/local/terminal/heartbeat",
             "/api/local/identity",
             "/api/local/diagnostics")
         .contains(path)) {

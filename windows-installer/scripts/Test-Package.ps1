@@ -1,4 +1,5 @@
 $ErrorActionPreference='Stop'
+if($env:GITHUB_ACTIONS -eq 'true'){Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private}
 $root=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $out=Join-Path $root 'windows-installer\target'
 $installer=Join-Path $out 'OnlinePOS-0.3.0-Development.exe'
@@ -109,6 +110,12 @@ try{
  if($LASTEXITCODE -ne 0){throw 'Master repair failed'}
  $https=Get-NetFirewallRule -Name OnlinePOS-HTTPS
  if($https.Profile -ne 'Private'){throw 'HTTPS firewall opened outside Private profile'}
+ $lan=Get-Content (Join-Path $data 'lan-policy.json') -Raw|ConvertFrom-Json
+ $network=Get-Content (Join-Path $data 'network.json') -Raw|ConvertFrom-Json
+ if($network.storeSubnet -eq 'LocalSubnet'){throw 'Wildcard network policy retained'}
+ if(-not(Get-ScheduledTask -TaskName OnlinePOS-NetworkRefresh -ErrorAction SilentlyContinue)){throw 'Network refresh task missing'}
+ $listeners=@(Get-NetTCPConnection -State Listen -LocalPort 8443).LocalAddress
+ if($listeners -contains '0.0.0.0' -or $listeners -contains '::' -or $listeners -notcontains $lan.address -or $listeners -notcontains '127.0.0.1'){throw 'HTTPS listeners are not restricted to approved IPv4 and loopback'}
  $env:PGPASSWORD=([Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([IO.File]::ReadAllBytes((Join-Path $data 'secrets\database-bundle.dpapi')),$null,[Security.Cryptography.DataProtectionScope]::LocalMachine))|ConvertFrom-Json).bootstrap
  try {
   $pg=Join-Path $program 'postgres\pgsql\bin\psql.exe'
@@ -142,8 +149,10 @@ try{
   if($LASTEXITCODE -ne 0){throw 'Protected owner designation failed'}
   $classes=Join-Path $out 'stage3-test-client';New-Item $classes -ItemType Directory -Force|Out-Null
   $clientPath=Join-Path $program 'desktop\app\*'
-  & (Join-Path $env:JAVA_HOME 'bin\javac.exe') -cp $clientPath -d $classes (Join-Path $root 'tools\WindowsStaffSmoke.java')
+  & (Join-Path $env:JAVA_HOME 'bin\javac.exe') -cp $clientPath -d $classes (Join-Path $root 'tools\WindowsStaffSmoke.java') (Join-Path $root 'tools\WindowsLanSmoke.java')
   if($LASTEXITCODE -ne 0){throw 'Cannot compile the isolated test client'}
+  & (Join-Path $program 'desktop\runtime\bin\java.exe') -cp ($classes+';'+$clientPath) WindowsLanSmoke
+  if($LASTEXITCODE -ne 0){throw 'Installed LAN automatic enrolment failed'}
   Invoke-SecretProcess -Executable (Join-Path $program 'desktop\runtime\bin\java.exe') -Arguments ('-cp "'+$classes+';'+$clientPath+'" WindowsStaffSmoke "'+(Join-Path $root 'integration-tests\src\test\resources\cloud-seed-branch1.json')+'" "'+(Join-Path $root 'store-server\src\main\resources\catalogue-schema-v1.json')+'"') -InputLines @($staffPassword,$staffPin,$cashierPin)
   if($LASTEXITCODE -ne 0){throw 'Installed staff TLS API failed'}
   Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation Backup -PasswordStdin') -InputLines @($password)

@@ -1,3 +1,4 @@
+Unregister-ScheduledTask -TaskName 'OnlinePOS-NetworkRefresh' -Confirm:$false -ErrorAction SilentlyContinue
 $ErrorActionPreference='Stop'
 foreach($name in @('OnlinePOSStore','OnlinePOSPostgres')){
  if(Get-Service $name -ErrorAction SilentlyContinue){

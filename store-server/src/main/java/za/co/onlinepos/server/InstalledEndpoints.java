@@ -57,6 +57,45 @@ public class InstalledEndpoints {
         "DISABLED");
   }
 
+  @GetMapping("/api/local/setup/bootstrap")
+  public Pairing.Bootstrap bootstrap() throws Exception {
+    return registry.bootstrap();
+  }
+
+  @PostMapping("/api/local/setup/challenge")
+  public Pairing.Challenge challenge(@RequestBody Pairing.JoinRequest request) throws Exception {
+    try {
+      return registry.challenge(request);
+    } catch (SecurityException
+        | IllegalArgumentException
+        | java.security.GeneralSecurityException e) {
+      throw refused();
+    }
+  }
+
+  @PostMapping("/api/local/setup/enrol")
+  public Pairing.Reply enrol(
+      @RequestBody Pairing.Enrolment request, jakarta.servlet.http.HttpServletRequest http)
+      throws Exception {
+    try {
+      return registry.enrol(request, http.getRemoteAddr());
+    } catch (SecurityException
+        | IllegalArgumentException
+        | java.security.GeneralSecurityException e) {
+      throw refused();
+    }
+  }
+
+  @GetMapping("/api/local/terminal/heartbeat")
+  public Map<String, Boolean> heartbeat() {
+    return Map.of("connected", true);
+  }
+
+  private org.springframework.web.server.ResponseStatusException refused() {
+    return new org.springframework.web.server.ResponseStatusException(
+        org.springframework.http.HttpStatus.FORBIDDEN, "Pairing refused");
+  }
+
   @PostMapping("/api/local/setup/pair")
   public Pairing.Reply pair(@RequestBody Pairing.Request request) throws Exception {
     try {

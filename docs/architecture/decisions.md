@@ -54,3 +54,7 @@
 
 These decisions refine the original staged plan. A stage's completion does not authorize the next stage,
 deployment, production migrations, branch activation or automatic failover.
+
+## LAN enrolment simplification — 26 October 2026
+
+Approved flow: Slave enters the Master LAN IPv4 address and joins without a code or approval. Initial trust is TOFU; this explicitly permits other devices on the allowed LAN to register. Existing staff/module authorization remains separate. Reuse certificate registry and DPAPI, add challenge-bound key proof and idempotent registration, and never silently replace a CA pin. Restrict discovery, listeners, application socket checks and Windows firewall to the selected private IPv4 adapter/subnet, with a separate loopback listener. Refresh DHCP identity under SYSTEM without changing the CA or authority. See `docs/development/lan-setup.md` for API, recovery and verification details.

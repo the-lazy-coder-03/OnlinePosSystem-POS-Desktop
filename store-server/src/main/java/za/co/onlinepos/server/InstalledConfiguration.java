@@ -31,6 +31,11 @@ public class InstalledConfiguration {
   }
 
   @Bean
+  za.co.onlinepos.installation.LanPolicy lanPolicy() throws Exception {
+    return za.co.onlinepos.installation.LanPolicy.load(dataRoot());
+  }
+
+  @Bean
   TerminalRegistry terminalRegistry(Installation identity) {
     return new TerminalRegistry(
         dataRoot(), Clock.systemUTC(), identity, new WindowsSecretStore(dataRoot()));
@@ -38,7 +43,7 @@ public class InstalledConfiguration {
 
   @Bean(destroyMethod = "close")
   MdnsDiscovery masterAdvertisement(Installation identity) throws Exception {
-    MdnsDiscovery discovery = new MdnsDiscovery();
+    MdnsDiscovery discovery = new MdnsDiscovery(lanPolicy());
     try {
       discovery.advertise(
           identity, za.co.onlinepos.installation.NetworkSettings.load(dataRoot()).httpsPort());

@@ -21,6 +21,26 @@ public final class SetupTool {
 
   private SetupTool() {}
 
+  private static void refreshCertificate(
+      Installation identity, LanPolicy network, SecretStore secrets) throws Exception {
+    var ca =
+        Certificates.parse(new String(secrets.get("ca-certificate"), StandardCharsets.US_ASCII));
+    var key = Certificates.keyPair();
+    String password = new String(secrets.get("pki-password"), StandardCharsets.US_ASCII);
+    var certificate =
+        Certificates.issue(
+            "OnlinePOS-" + identity.clusterId(),
+            key.getPublic(),
+            ca,
+            Certificates.privateKey(secrets.get("ca-key")),
+            false,
+            false,
+            List.of("localhost", "127.0.0.1", network.address()));
+    secrets.put(
+        "server-p12",
+        Certificates.store(key.getPrivate(), certificate, ca, password.toCharArray()));
+  }
+
   public static void main(String[] args) throws Exception {
     Path root =
         Path.of(System.getenv().getOrDefault("POS_DATA_ROOT", "C:\\ProgramData\\OnlinePOS"));
@@ -44,9 +64,36 @@ public final class SetupTool {
         }
         char[] password = envelope.administratorPassword().toCharArray();
         try {
-          if (Files.exists(root.resolve("administrator.json"))) administrator.verify(password);
-          else administrator.initialize(password);
           SetupRequest request = envelope.request();
+          var existing = repository.load();
+          boolean slaveRepair =
+              request.role() == InstallationRole.SLAVE
+                  && (existing.isEmpty()
+                      || (existing.get().role() == InstallationRole.SLAVE
+                          && existing.get().branchId() == request.branchId()));
+          if (!slaveRepair) {
+            if (Files.exists(root.resolve("administrator.json"))) administrator.verify(password);
+            else administrator.initialize(password);
+          }
+          var networks = WindowsNetworks.available();
+          LanPolicy selected = request.network();
+          if (selected == null && Files.exists(root.resolve("lan-policy.json"))) {
+            String id = LanPolicy.load(root).adapterId();
+            selected =
+                networks.stream()
+                    .filter(n -> n.adapterId().equals(id))
+                    .findFirst()
+                    .orElseThrow(() -> new SecurityException("Approved store network unavailable"));
+          }
+          if (selected == null && networks.size() == 1) selected = networks.getFirst();
+          if (selected == null || !networks.contains(selected))
+            throw new SecurityException("Select the active private store network");
+          JsonFiles.write(root.resolve("lan-policy.json"), selected);
+          var oldNetwork = NetworkSettings.load(root);
+          JsonFiles.write(
+              root.resolve("network.json"),
+              new NetworkSettings(
+                  oldNetwork.httpsPort(), oldNetwork.postgresPort(), selected.subnet()));
           NetworkSettings.load(root);
           var previous = repository.load();
           Installation identity =
@@ -101,11 +148,7 @@ public final class SetupTool {
             List<String> hosts = new java.util.ArrayList<>(List.of(host, "localhost", "127.0.0.1"));
             hosts.add(java.net.InetAddress.getLocalHost().getCanonicalHostName());
             if (!host.endsWith(".local")) hosts.add(host + ".local");
-            var interfaces = java.net.NetworkInterface.getNetworkInterfaces();
-            while (interfaces.hasMoreElements())
-              for (var address :
-                  java.util.Collections.list(interfaces.nextElement().getInetAddresses()))
-                if (address instanceof java.net.Inet4Address) hosts.add(address.getHostAddress());
+            hosts.add(selected.address());
             var server =
                 Certificates.issue(
                     host, serverKey.getPublic(), ca, caKey.getPrivate(), false, false, hosts);
@@ -132,28 +175,40 @@ public final class SetupTool {
                         UUID.randomUUID().toString(),
                         "runtime",
                         UUID.randomUUID().toString())));
+          if (request.role() == InstallationRole.MASTER)
+            refreshCertificate(identity, selected, secrets);
           if (request.role() == InstallationRole.SLAVE) {
-            Pairing.Invitation invitation =
-                JsonFiles.JSON.readValue(request.invitation(), Pairing.Invitation.class);
-            if (invitation.branchId() != request.branchId())
-              throw new SecurityException("Invitation belongs to another branch");
             var client = new TrustedStoreClient();
             Pairing.Identity reply;
-            if (Files.exists(root.resolve("secrets/terminal-p12.dpapi"))) {
-              var saved =
-                  JsonFiles.JSON.readValue(secrets.get("pairing-trust"), Pairing.Invitation.class);
-              if (!saved.clusterId().equals(invitation.clusterId())
-                  || saved.branchId() != invitation.branchId()
-                  || !saved.caFingerprint().equals(invitation.caFingerprint()))
-                throw new SecurityException(
-                    "Existing terminal trust cannot be replaced during repair");
-              try {
-                reply = client.identity(invitation, secrets);
-              } catch (SecurityException revoked) {
-                // A fresh administrator-issued invitation may replace a revoked registration.
-                reply = client.pair(invitation, identity.terminalId(), secrets);
+            if (request.invitation() == null || request.invitation().isBlank()) {
+              if (!selected.contains(request.masterAddress()))
+                throw new SecurityException("Master must be on the approved store subnet");
+              reply =
+                  LanPairingClient.connect(
+                      request.masterAddress(),
+                      request.branchId(),
+                      identity.terminalId(),
+                      request.terminalName(),
+                      secrets);
+            } else {
+              // Existing protected invitation tooling remains compatible during upgrades.
+              var invitation =
+                  JsonFiles.JSON.readValue(request.invitation(), Pairing.Invitation.class);
+              if (invitation.branchId() != request.branchId())
+                throw new SecurityException("Wrong branch");
+              if (Files.exists(root.resolve("secrets/pairing-trust.dpapi"))) {
+                var saved =
+                    JsonFiles.JSON.readValue(
+                        secrets.get("pairing-trust"), Pairing.Invitation.class);
+                if (!saved.clusterId().equals(invitation.clusterId())
+                    || !saved.caFingerprint().equals(invitation.caFingerprint()))
+                  throw new SecurityException("Cannot replace existing terminal trust");
               }
-            } else reply = client.pair(invitation, identity.terminalId(), secrets);
+              reply =
+                  Files.exists(root.resolve("secrets/terminal-p12.dpapi"))
+                      ? client.identity(invitation, secrets)
+                      : client.pair(invitation, identity.terminalId(), secrets);
+            }
             identity =
                 new Installation(
                     1,
@@ -170,6 +225,21 @@ public final class SetupTool {
         } finally {
           Arrays.fill(password, '\0');
         }
+      } else if (args[0].equals("refresh-network")) {
+        var identity = repository.load().orElseThrow();
+        if (identity.role() != InstallationRole.MASTER)
+          throw new SecurityException("Master required");
+        var old = LanPolicy.load(root);
+        var current =
+            WindowsNetworks.available().stream()
+                .filter(n -> n.adapterId().equals(old.adapterId()))
+                .findFirst()
+                .orElseThrow(() -> new SecurityException("Approved private adapter unavailable"));
+        if (!current.subnet().equals(old.subnet()))
+          throw new SecurityException("Store subnet change requires protected setup");
+        JsonFiles.write(root.resolve("lan-policy.json"), current);
+        refreshCertificate(identity, current, secrets);
+        System.out.println("NETWORK_REFRESHED");
       } else if (args[0].equals("pair-local")) {
         Installation identity = repository.load().orElseThrow();
         if (identity.role() != InstallationRole.MASTER)
@@ -183,7 +253,7 @@ public final class SetupTool {
         if (needsPairing) {
           var registry = new TerminalRegistry(root, Clock.systemUTC(), identity, secrets);
           var invitation =
-              registry.invite("https://localhost:" + NetworkSettings.load(root).httpsPort());
+              registry.invite("https://127.0.0.1:" + NetworkSettings.load(root).httpsPort());
           Exception failure = null;
           for (long deadline =
                   System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(90);

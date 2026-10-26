@@ -12,15 +12,39 @@ public final class MdnsDiscovery implements MasterDiscovery {
   public static final String TYPE = "_onlinepos._tcp.local.";
   private final List<JmDNS> listeners = new ArrayList<>();
 
+  private LanPolicy policy;
+
+  public MdnsDiscovery() {}
+
+  public MdnsDiscovery(LanPolicy policy) {
+    this.policy = policy;
+  }
+
   public synchronized void start() throws Exception {
     if (!listeners.isEmpty()) return;
-    var interfaces = java.net.NetworkInterface.getNetworkInterfaces();
-    while (interfaces.hasMoreElements()) {
-      var network = interfaces.nextElement();
-      if (!network.isUp() || network.isLoopback()) continue;
-      for (InetAddress address : java.util.Collections.list(network.getInetAddresses()))
-        if (address instanceof java.net.Inet4Address) listeners.add(JmDNS.create(address));
+    if (policy == null) {
+      if (!System.getProperty("os.name").startsWith("Windows")) return;
+      policy =
+          LanPolicy.load(
+              java.nio.file.Path.of(
+                  System.getenv().getOrDefault("POS_DATA_ROOT", "C:\\ProgramData\\OnlinePOS")));
     }
+    if (System.getProperty("os.name").startsWith("Windows")) {
+      var approved = policy;
+      policy =
+          WindowsNetworks.available().stream()
+              .filter(
+                  n ->
+                      n.adapterId().equals(approved.adapterId())
+                          && n.subnet().equals(approved.subnet()))
+              .findFirst()
+              .orElseThrow(() -> new java.io.IOException("Approved private LAN unavailable"));
+    }
+    var address = InetAddress.getByName(policy.address());
+    var network = java.net.NetworkInterface.getByInetAddress(address);
+    if (network == null || !network.isUp() || network.isLoopback() || network.isVirtual())
+      throw new java.io.IOException("Approved LAN unavailable");
+    listeners.add(JmDNS.create(address));
   }
 
   public synchronized void advertise(Installation installation, int port) throws Exception {
@@ -47,6 +71,12 @@ public final class MdnsDiscovery implements MasterDiscovery {
       for (ServiceInfo service : listener.list(TYPE, 1500))
         results.addAll(
             endpoints(service.getServer(), service.getPort(), service.getInet4Addresses()));
+    if (policy != null)
+      results.removeIf(
+          origin -> {
+            var host = java.net.URI.create(origin).getHost();
+            return !policy.contains(host);
+          });
     return List.copyOf(results);
   }
 

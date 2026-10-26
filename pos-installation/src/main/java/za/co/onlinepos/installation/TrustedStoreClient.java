@@ -16,8 +16,18 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 
 public final class TrustedStoreClient implements PairingClient, StoreApiClient {
-  private HttpClient client(
-      Pairing.Invitation invitation, SecretStore secrets, boolean authenticate) throws Exception {
+  private final java.util.function.Supplier<MasterDiscovery> discoveryFactory;
+
+  public TrustedStoreClient() {
+    this(MdnsDiscovery::new);
+  }
+
+  TrustedStoreClient(java.util.function.Supplier<MasterDiscovery> discoveryFactory) {
+    this.discoveryFactory = discoveryFactory;
+  }
+
+  HttpClient client(Pairing.Invitation invitation, SecretStore secrets, boolean authenticate)
+      throws Exception {
     var ca = Certificates.parse(invitation.caCertificate());
     ca.checkValidity();
     if (!Certificates.fingerprint(ca).equals(invitation.caFingerprint()))
@@ -117,8 +127,54 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
     return identity(invitation, secrets);
   }
 
+  private record Cached(String requestedOrigin, Pairing.Invitation trust) {}
+
+  private volatile Cached lastConnection;
+
+  private record Connection(Pairing.Invitation trust, Pairing.Identity identity) {}
+
   public Pairing.Identity identity(Pairing.Invitation invitation, SecretStore secrets)
       throws Exception {
+    return connect(invitation, secrets).identity();
+  }
+
+  private Connection connect(Pairing.Invitation invitation, SecretStore secrets) throws Exception {
+    String requestedOrigin = invitation.endpoint();
+    var cached = lastConnection;
+    if (cached != null
+        && cached.requestedOrigin().equals(requestedOrigin)
+        && cached.trust().branchId() == invitation.branchId()
+        && cached.trust().clusterId().equals(invitation.clusterId())
+        && cached.trust().caFingerprint().equals(invitation.caFingerprint()))
+      invitation = cached.trust();
+    try {
+      var result = identityAt(invitation, secrets);
+      lastConnection = new Cached(requestedOrigin, invitation);
+      return new Connection(invitation, result);
+    } catch (java.io.IOException | SecurityException initial) {
+      try (var discovery = discoveryFactory.get()) {
+        int attempts = 0;
+        for (var endpoint : discovery.candidates()) {
+          if (++attempts > 8) break;
+          var uri = URI.create(endpoint);
+          if (!LanPolicy.privateAddress(uri.getHost())) continue;
+          var candidate = LanPairingClient.at(invitation, endpoint);
+          try {
+            var result = identityAt(candidate, secrets);
+            lastConnection = new Cached(requestedOrigin, candidate);
+            return new Connection(candidate, result);
+          } catch (java.io.IOException | SecurityException ignored) {
+            /* never change trust */
+          }
+        }
+      } catch (java.io.IOException ignored) {
+        /* retain original failure and credentials */
+      }
+      throw initial;
+    }
+  }
+
+  Pairing.Identity identityAt(Pairing.Invitation invitation, SecretStore secrets) throws Exception {
     HttpResponse<byte[]> response;
     try (var http = client(invitation, secrets, true)) {
       response =
@@ -133,7 +189,9 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
       throw new SecurityException("Trusted identity refused: " + response.statusCode());
     var identity = JsonFiles.JSON.readValue(response.body(), Pairing.Identity.class);
     if (!identity.clusterId().equals(invitation.clusterId())
-        || identity.branchId() != invitation.branchId())
+        || identity.branchId() != invitation.branchId()
+        || !"MASTER".equals(identity.role())
+        || !"INSTALLED".equals(identity.state()))
       throw new SecurityException("Wrong branch or cluster");
     return identity;
   }
@@ -171,7 +229,7 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
         || path.length() > 2048
         || !uri.getRawPath()
             .matches(
-                "/api/local/admin/(overview|staff|staff/options|roles|audit|audit/(types|settings|events|events/[a-f0-9-]{36})|staff/[a-f0-9-]{36}/pin)")
+                "/api/local/admin/(overview|terminals|terminals/[a-f0-9-]{36}|staff|staff/options|roles|audit|audit/(types|settings|events|events/[a-f0-9-]{36})|staff/[a-f0-9-]{36}/pin)")
         || !java.util.Set.of("GET", "PUT").contains(method))
       throw new IllegalArgumentException("Unsupported administration endpoint");
     return authenticatedRequest(invitation, secrets, path, method, body, token);
@@ -199,7 +257,7 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
       byte[] body,
       String token)
       throws Exception {
-    identity(invitation, secrets);
+    invitation = connect(invitation, secrets).trust();
     try (var http = client(invitation, secrets, true)) {
       var builder =
           HttpRequest.newBuilder(endpoint(invitation, path))

@@ -20,6 +20,7 @@ public class FoundationSecurity {
   SecurityFilterChain securityFilterChain(
       HttpSecurity http,
       ObjectProvider<TerminalRegistry> registry,
+      ObjectProvider<za.co.onlinepos.installation.LanPolicy> policy,
       ObjectProvider<StaffService> staff,
       ObjectProvider<za.co.onlinepos.server.local.ModuleAccess> modules,
       Environment env)
@@ -29,7 +30,7 @@ public class FoundationSecurity {
           .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
       if (registry.getIfAvailable() != null)
         http.addFilterBefore(
-            new TerminalAuthenticationFilter(registry.getObject()),
+            new TerminalAuthenticationFilter(registry.getObject(), policy.getIfAvailable()),
             AnonymousAuthenticationFilter.class);
       if (staff.getIfAvailable() != null) {
         String dev = null;
@@ -52,10 +53,19 @@ public class FoundationSecurity {
                       .permitAll()
                       .requestMatchers(HttpMethod.GET, "/api/local/health")
                       .permitAll()
-                      .requestMatchers(HttpMethod.POST, "/api/local/setup/pair")
+                      .requestMatchers(HttpMethod.GET, "/api/local/setup/bootstrap")
                       .permitAll()
                       .requestMatchers(
-                          HttpMethod.GET, "/api/local/identity", "/api/local/diagnostics")
+                          HttpMethod.POST,
+                          "/api/local/setup/pair",
+                          "/api/local/setup/challenge",
+                          "/api/local/setup/enrol")
+                      .permitAll()
+                      .requestMatchers(
+                          HttpMethod.GET,
+                          "/api/local/identity",
+                          "/api/local/diagnostics",
+                          "/api/local/terminal/heartbeat")
                       .authenticated()
                       .requestMatchers(
                           HttpMethod.POST, "/api/local/auth/login", "/api/local/modules/enter")

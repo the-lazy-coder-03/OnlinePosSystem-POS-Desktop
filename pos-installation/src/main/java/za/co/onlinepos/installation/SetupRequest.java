@@ -9,7 +9,17 @@ public record SetupRequest(
     InstallationRole role,
     String terminalName,
     String invitation,
-    String masterAddress) {
+    String masterAddress,
+    LanPolicy network) {
+  public SetupRequest(
+      int branchId,
+      InstallationRole role,
+      String terminalName,
+      String invitation,
+      String masterAddress) {
+    this(branchId, role, terminalName, invitation, masterAddress, null);
+  }
+
   public SetupRequest(int branchId, InstallationRole role, String terminalName, String invitation) {
     this(branchId, role, terminalName, invitation, "");
   }
@@ -20,6 +30,7 @@ public record SetupRequest(
   }
 
   public SetupRequest {
+    invitation = invitation == null ? "" : invitation;
     masterAddress = masterAddress == null ? "" : masterAddress.strip();
     Branch.fromId(branchId);
     Objects.requireNonNull(role);

@@ -147,46 +147,71 @@ final class SetupWizard extends BorderPane {
       summary.getStyleClass().add("summary");
       javafx.scene.control.PasswordField administrator = new javafx.scene.control.PasswordField();
       administrator.setPromptText("Installation administrator password (5+ characters)");
-      javafx.scene.control.TextArea invitation = new javafx.scene.control.TextArea();
-      invitation.setPromptText("Slave: paste the pairing invitation JSON from your Master");
-      javafx.scene.control.TextField masterAddress = new javafx.scene.control.TextField();
-      masterAddress.setPromptText(
-          "Optional manual HTTPS Master address (same trusted certificate required)");
-      masterAddress.setVisible(selection.role() == InstallationRole.SLAVE);
-      masterAddress.setManaged(masterAddress.isVisible());
-      invitation.setPrefRowCount(3);
-      invitation.setVisible(selection.role() == InstallationRole.SLAVE);
-      invitation.setManaged(invitation.isVisible());
-      Button discover = new Button("Discover Masters");
-      Label progress = new Label();
-      progress.setWrapText(true);
-      discover.setOnAction(
-          event -> {
-            discover.setDisable(true);
-            presenter
-                .discover()
-                .whenComplete(
-                    (result, error) ->
-                        javafx.application.Platform.runLater(
-                            () -> {
-                              progress.setText(
-                                  error == null
-                                      ? (result.isBlank()
-                                          ? "No candidates found; enter the trusted Master address in the invitation."
-                                          : "Unverified candidates:\n" + result)
-                                      : "Discovery unavailable; use a trusted invitation with a manual address.");
-                              discover.setDisable(false);
-                            }));
+      boolean isSlave = selection.role() == InstallationRole.SLAVE;
+      administrator.setVisible(!isSlave);
+      administrator.setManaged(!isSlave);
+      var masterAddress = new TextField();
+      masterAddress.setId("master-lan-ip");
+      masterAddress.setPromptText("Master LAN IP, for example 192.168.1.20");
+      masterAddress.setVisible(isSlave);
+      masterAddress.setManaged(isSlave);
+      var networks = new ComboBox<za.co.onlinepos.installation.LanPolicy>();
+      networks.setId("store-network");
+      networks.setPromptText("Select your store network");
+      networks.setConverter(
+          new StringConverter<>() {
+            public String toString(za.co.onlinepos.installation.LanPolicy n) {
+              return n == null ? "" : n.adapterName() + " · " + n.address();
+            }
+
+            public za.co.onlinepos.installation.LanPolicy fromString(String value) {
+              throw new UnsupportedOperationException();
+            }
           });
-      Button install = new Button("Install / resume setup");
+      Label progress = new Label("Checking local networks…");
+      progress.setWrapText(true);
+      presenter
+          .networks()
+          .whenComplete(
+              (choices, error) ->
+                  javafx.application.Platform.runLater(
+                      () -> {
+                        if (error != null) {
+                          progress.setText(
+                              "Unable to detect private store networks. Check Windows network settings.");
+                          return;
+                        }
+                        networks.getItems().setAll(choices);
+                        if (choices.size() == 1) networks.setValue(choices.getFirst());
+                        networks.setVisible(choices.size() > 1);
+                        networks.setManaged(choices.size() > 1);
+                        progress.setText(
+                            choices.isEmpty()
+                                ? "No private store network found. Set the store Ethernet or Wi-Fi network to Private in Windows."
+                                : "");
+                      }));
+      Button install = new Button(isSlave ? "Connect" : "Install / resume setup");
+      install.setId("setup-connect");
       install.getStyleClass().add("primary");
       install.setOnAction(
           event -> {
             char[] password = administrator.getText().toCharArray();
             administrator.clear();
-            if (password.length < 5) {
+            if (!isSlave && password.length < 5) {
               java.util.Arrays.fill(password, '\0');
               progress.setText("Enter an administrator password of at least 5 characters.");
+              return;
+            }
+            if (isSlave
+                && !za.co.onlinepos.installation.LanPolicy.privateAddress(
+                    masterAddress.getText().strip())) {
+              progress.setText("Enter the Master's private LAN IPv4 address.");
+              java.util.Arrays.fill(password, '\0');
+              return;
+            }
+            if (networks.getItems().size() > 1 && networks.getValue() == null) {
+              progress.setText("Select your store network.");
+              java.util.Arrays.fill(password, '\0');
               return;
             }
             install.setDisable(true);
@@ -197,8 +222,9 @@ final class SetupWizard extends BorderPane {
                         selection.branch().id(),
                         selection.role(),
                         selection.terminalName(),
-                        invitation.getText(),
-                        masterAddress.getText()),
+                        "",
+                        masterAddress.getText(),
+                        networks.getValue()),
                     password)
                 .whenComplete(
                     (result, error) ->
@@ -219,7 +245,7 @@ final class SetupWizard extends BorderPane {
           new Label(
               selection.role() == InstallationRole.MASTER
                   ? "Setup creates a dedicated PostgreSQL cluster, database identities, HTTPS certificates, Windows backend/database services and Private-network firewall rules. Existing data is preserved. Windows will request administrator consent."
-                  : "Setup registers this terminal with the invited Master and stores protected terminal credentials. It installs no database or backend service. Windows will request administrator consent.");
+                  : "Enter the Master LAN IP to register automatically. First connection trusts the computer at that IP. No joining code or approval is required. Windows will request consent to protect this terminal’s configuration.");
       explanation.setWrapText(true);
       Button back = new Button("Back to setup");
       back.setOnAction(event -> setCenter(form));
@@ -230,9 +256,8 @@ final class SetupWizard extends BorderPane {
               summary,
               explanation,
               administrator,
-              invitation,
               masterAddress,
-              discover,
+              networks,
               install,
               progress,
               back);

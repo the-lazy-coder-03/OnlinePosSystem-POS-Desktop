@@ -14,6 +14,7 @@ import za.co.onlinepos.installation.TerminalRegistry;
 
 public final class TerminalAuthenticationFilter extends OncePerRequestFilter {
   private final TerminalRegistry registry;
+  private final za.co.onlinepos.installation.LanPolicy policy;
   private final java.util.Map<String, long[]> pairingAttempts = new java.util.HashMap<>();
 
   private synchronized boolean permitPairing(String address) {
@@ -25,19 +26,28 @@ public final class TerminalAuthenticationFilter extends OncePerRequestFilter {
   }
 
   public TerminalAuthenticationFilter(TerminalRegistry registry) {
+    this(registry, null);
+  }
+
+  public TerminalAuthenticationFilter(
+      TerminalRegistry registry, za.co.onlinepos.installation.LanPolicy policy) {
     this.registry = registry;
+    this.policy = policy;
   }
 
   @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
-    if (!request.isSecure()) {
+    if (!request.isSecure()
+        || (policy != null && !policy.permits(request.getRemoteAddr(), request.getLocalAddr()))) {
       response.sendError(403);
       return;
     }
-    if (request.getRequestURI().equals("/api/local/setup/pair")) {
-      if (request.getContentLengthLong() < 0 || request.getContentLengthLong() > 16384) {
+    if (request.getRequestURI().startsWith("/api/local/setup/")) {
+      response.setHeader("Cache-Control", "no-store");
+      if (!request.getMethod().equals("GET")
+          && (request.getContentLengthLong() < 0 || request.getContentLengthLong() > 16384)) {
         response.sendError(413);
         return;
       }
@@ -50,6 +60,9 @@ public final class TerminalAuthenticationFilter extends OncePerRequestFilter {
         (X509Certificate[]) request.getAttribute("jakarta.servlet.request.X509Certificate");
     try {
       if (certificates != null && certificates.length > 0 && registry.authorized(certificates[0])) {
+        registry.contact(
+            za.co.onlinepos.installation.Certificates.fingerprint(certificates[0]),
+            request.getRemoteAddr());
         request.setAttribute(
             "pos.terminal",
             java.util.HexFormat.of()

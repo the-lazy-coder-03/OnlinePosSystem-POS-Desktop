@@ -38,33 +38,18 @@ a pos_store database and no business tables. Backend and database services use d
 service-specific filesystem permissions. Service restart is automatic; no staff session is required.
 
 ## Slave pairing and management
-Run management in an elevated Windows PowerShell console on the Master:
-```powershell
-& 'C:\Program Files\OnlinePOS\setup\Manage.ps1' -Action Invite -Endpoint 'https://MASTER-HOST:8443' -OutputPath 'C:\ProgramData\OnlinePOS\invitations\terminal.json'
-```
-Enter the installation-administrator password at the console prompt. Transfer the protected invitation
-to its intended operator within ten minutes. Paste its JSON into Slave JavaFX. A manual HTTPS address
-may replace the address only; it cannot change trust fingerprints or branch identity.
-Do not put invitation contents into issue comments, build logs or shared screenshots.
 
-Revoke a terminal with Manage.ps1 -Action Revoke -TerminalId <terminal UUID>. No unauthenticated LAN
-management endpoint exists. For advanced Backup components, re-run the installer selecting Master
-components, then Manage.ps1 -Action Backup on an already configured Slave. Administrator authentication
-and elevation are mandatory. The backend is disabled; no standby database is seeded or promoted.
+Current JavaFX flow: choose branch and Slave, enter the Master's private LAN IPv4 address, and click **Connect**. There is no joining passcode, pasted invitation or individual approval. First use pins the CA at the entered IP; subsequent connections authenticate the enrolled terminal and verify the pinned branch/cluster. The Windows UAC helper protects machine configuration. See [LAN setup](lan-setup.md) for the approved trust model, network selection, DHCP reconnection and terminal management.
 
-A fresh Slave installs no backend or PostgreSQL. Master demotion and any transition involving existing
-PostgreSQL data are deliberately refused pending a verified ownership/data handover. This restriction
-must not be bypassed by editing installation.json. No automatic failover is implemented. A configured Slave may deliberately create a new independent
-Master with Manage.ps1 -Action Master after installing Master components; this creates a new cluster
-identity and must never be used to silently replace a disconnected branch Master.
+Master setup retains its installation-administrator password. Existing `Manage.ps1 -Action Invite` tooling is a legacy protected maintenance path; it is not the normal Slave UI. Backup Master components remain inactive/unseeded and promotion is not implemented. Ordinary Slaves install no backend or PostgreSQL. Role changes involving Master data still require protected handover; never bypass these checks by editing installation JSON.
 
 ## Recovery and rollback
 Interrupted provisioning leaves CONFIGURING state and a redacted provisioning.log. Re-run the same setup
 with the same branch/role and administrator credential; installed identities and database directory must
 be preserved. Never delete populated data to repair installation. Certificate bundles commit their CA key last, so interrupted first creation can be retried. If a pairing
 response is lost before the terminal saves its certificate, revoke that terminal UUID on the Master,
-issue a new invitation, and retry the same installation. A revoked registration may be replaced only
-with a fresh invitation; used tokens remain rejected. Do not disable TLS or create a second Master.
+use protected maintenance and retry the same installation. A revoked registration may be replaced only
+through protected maintenance; open LAN enrolment cannot clear revocation. Do not disable TLS or create a second Master.
 
 Uninstall stops/removes app-owned services and firewall rules before removing binaries; failure to stop
 services cancels uninstall. ProgramData is retained, including database, keys and unresolved future queues.
