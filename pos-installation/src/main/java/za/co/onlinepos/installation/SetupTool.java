@@ -28,13 +28,11 @@ public final class SetupTool {
     var key = Certificates.keyPair();
     String password = new String(secrets.get("pki-password"), StandardCharsets.US_ASCII);
     var certificate =
-        Certificates.issue(
-            "OnlinePOS-" + identity.clusterId(),
+        Certificates.server(
+            identity.clusterId(),
             key.getPublic(),
             ca,
             Certificates.privateKey(secrets.get("ca-key")),
-            false,
-            false,
             List.of("localhost", "127.0.0.1", network.address()));
     secrets.put(
         "server-p12",
@@ -150,8 +148,8 @@ public final class SetupTool {
             if (!host.endsWith(".local")) hosts.add(host + ".local");
             hosts.add(selected.address());
             var server =
-                Certificates.issue(
-                    host, serverKey.getPublic(), ca, caKey.getPrivate(), false, false, hosts);
+                Certificates.server(
+                    identity.clusterId(), serverKey.getPublic(), ca, caKey.getPrivate(), hosts);
             String pkiPassword = UUID.randomUUID().toString();
             secrets.put(
                 "ca-certificate", Certificates.encode(ca).getBytes(StandardCharsets.US_ASCII));

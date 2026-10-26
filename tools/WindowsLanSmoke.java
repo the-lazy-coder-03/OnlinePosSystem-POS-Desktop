@@ -29,7 +29,7 @@ public class WindowsLanSmoke {
         }
       };
       try {LanPairingClient.connect(policy.address(),identity.branchId(),terminal,"LAN CI Slave",failOnce);throw new AssertionError("Expected interrupted credential write");}
-      catch(java.io.IOException expected) { /* Master has already committed the registration. */ }
+      catch(java.io.IOException expected) { if(!"Simulated lost installation acknowledgement".equals(expected.getMessage()))throw expected; /* Master has already committed the registration. */ }
       byte[] pin=disk.get("pairing-trust");
       var connected=LanPairingClient.connect(policy.address(),identity.branchId(),terminal,"LAN CI Slave",disk);
       if(!connected.clusterId().equals(identity.clusterId()))throw new AssertionError("Wrong cluster");

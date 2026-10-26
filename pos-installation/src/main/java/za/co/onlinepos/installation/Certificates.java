@@ -53,6 +53,17 @@ public final class Certificates {
         .formatHex(MessageDigest.getInstance("SHA-256").digest(certificate.getEncoded()));
   }
 
+  /** Server and CA subjects must differ: self-issued leaf names truncate PKCS12 chains. */
+  public static X509Certificate server(
+      java.util.UUID cluster,
+      java.security.PublicKey publicKey,
+      X509Certificate ca,
+      PrivateKey signingKey,
+      List<String> hosts)
+      throws Exception {
+    return issue("OnlinePOS-server-" + cluster, publicKey, ca, signingKey, false, false, hosts);
+  }
+
   public static X509Certificate issue(
       String subject,
       java.security.PublicKey publicKey,
