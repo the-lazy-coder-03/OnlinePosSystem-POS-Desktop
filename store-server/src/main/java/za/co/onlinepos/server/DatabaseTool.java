@@ -151,6 +151,11 @@ public final class DatabaseTool {
               .orElseThrow()
               .substring(16);
       boolean windows = System.getProperty("os.name").startsWith("Windows");
+      if ((operation.startsWith("recovery-") || operation.equals("recover-owner"))
+          && !passwordStdin
+          && System.console() == null)
+        throw new SecurityException(
+            "Recovery requires a masked console or controlled credential stdin");
       LocalDatabase.Identity identity;
       DataSource owner;
       if (windows) {

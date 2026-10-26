@@ -19,6 +19,14 @@ or enrolled by this change. Review and deliberate local enrolment remain pending
 
 CI run: https://github.com/the-lazy-coder-03/OnlinePosSystem-POS-Desktop/actions/runs/40338694811
 
+Windows run 40339339349 passed build/tests, packaged JavaFX, protected enrol/reset/disable checks,
+repair, backup, restart and data-preserving uninstall/reinstall. Its package log contains
+`WINDOWS_DEVELOPER_RECOVERY_ENROL_RESET_DISABLE_OK`. Linux and secret scanning passed as well.
+
+An additional subprocess regression test verifies that redirected recovery refuses to read any
+credential without explicit controlled stdin; it passed locally with the final console safeguard.
+The latest PR checks validate that final safeguard too.
+
 The first Windows attempt failed in the pre-existing LAN TLS rediscovery test with an HTTP connect
 timeout, before the recovery package checks. That job was retried; final status is recorded in the PR.
 The new native package scenario uses generated fixture credentials through stdin to enrol, recover,
