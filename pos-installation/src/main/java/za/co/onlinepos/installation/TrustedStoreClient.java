@@ -229,7 +229,7 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
         || path.length() > 2048
         || !uri.getRawPath()
             .matches(
-                "/api/local/admin/(overview|terminals|terminals/[a-f0-9-]{36}|staff|staff/options|roles|audit|audit/(types|settings|events|events/[a-f0-9-]{36})|staff/[a-f0-9-]{36}/pin)")
+                "/api/local/admin/(system-access/developer-recovery(/disable)?|overview|terminals|terminals/[a-f0-9-]{36}|staff|staff/options|roles|audit|audit/(types|settings|events|events/[a-f0-9-]{36})|staff/[a-f0-9-]{36}/pin)")
         || !java.util.Set.of("GET", "PUT").contains(method))
       throw new IllegalArgumentException("Unsupported administration endpoint");
     return authenticatedRequest(invitation, secrets, path, method, body, token);

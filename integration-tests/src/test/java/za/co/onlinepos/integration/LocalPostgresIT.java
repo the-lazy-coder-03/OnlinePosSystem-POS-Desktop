@@ -193,9 +193,10 @@ class LocalPostgresIT {
                 "INSERT INTO pos.local_customer(customer_id,branch_id,display_name) VALUES (?,2,'wrong branch')",
                 UUID.randomUUID()));
     assertEquals(
-        6,
+        "8",
         ADMIN.queryForObject(
-            "SELECT count(*) FROM public.flyway_schema_history WHERE success", Integer.class));
+            "SELECT version FROM public.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
+            String.class));
     assertThrows(
         IllegalStateException.class,
         () -> DatabaseTool.bootstrap(OWNER, IDENTITY, "another", PASSWORD.toCharArray()));

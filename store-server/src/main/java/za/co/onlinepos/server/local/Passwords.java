@@ -23,6 +23,10 @@ public final class Passwords {
     return hashSecret(pin);
   }
 
+  static String hashRecovery(char[] boundSecret) {
+    return hashSecret(boundSecret);
+  }
+
   private static String hashSecret(char[] password) {
     byte[] salt = new byte[24];
     new SecureRandom().nextBytes(salt);

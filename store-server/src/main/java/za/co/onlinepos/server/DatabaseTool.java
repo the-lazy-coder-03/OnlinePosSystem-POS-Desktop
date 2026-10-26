@@ -164,7 +164,28 @@ public final class DatabaseTool {
         if (!operation.equals("migrate")) {
           char[] admin = readPassword("Installation administrator: ");
           try {
-            new Administrator(root, Clock.systemUTC()).verify(admin);
+            try {
+              new Administrator(root, Clock.systemUTC()).verify(admin);
+            } catch (RuntimeException denied) {
+              if (operation.startsWith("recovery-") || operation.equals("recover-owner")) {
+                byte[] bundle = new WindowsSecretStore(root).get("database-bundle");
+                try {
+                  var credentials = JsonFiles.JSON.readValue(bundle, Map.class);
+                  var auditOwner =
+                      source(
+                          "jdbc:postgresql://127.0.0.1:"
+                              + NetworkSettings.load(root).postgresPort()
+                              + "/pos_store",
+                          "pos_owner",
+                          (String) credentials.get("owner"));
+                  new za.co.onlinepos.server.local.DeveloperRecovery(auditOwner, identity)
+                      .deniedAdministrator();
+                } finally {
+                  Arrays.fill(bundle, (byte) 0);
+                }
+              }
+              throw denied;
+            }
           } finally {
             Arrays.fill(admin, '\0');
           }
@@ -232,6 +253,37 @@ public final class DatabaseTool {
                 owner, identity, operation, subject, values, pin, key);
           } finally {
             Arrays.fill(pin, '\0');
+          }
+        }
+        case "recovery-enrol", "recovery-rotate", "recovery-disable", "recover-owner" -> {
+          var recovery = new za.co.onlinepos.server.local.DeveloperRecovery(owner, identity);
+          if (operation.equals("recovery-disable")) recovery.disable();
+          else {
+            char[] developerPin = readPassword("Five-digit developer recovery PIN: ");
+            char[] newPin = new char[0];
+            char[] confirmation = new char[0];
+            try {
+              if (operation.equals("recover-owner")) {
+                newPin = readPassword("New six-digit owner PIN: ");
+                confirmation = readPassword("Confirm new owner PIN: ");
+                if (!Arrays.equals(newPin, confirmation)) {
+                  recovery.deniedConfirmation();
+                  throw new IllegalArgumentException("Owner PIN confirmation does not match");
+                }
+                String pinKey =
+                    windows
+                        ? new String(
+                            new WindowsSecretStore(InstalledConfiguration.dataRoot())
+                                .get("pin-key"),
+                            StandardCharsets.US_ASCII)
+                        : required("POS_PIN_KEY");
+                recovery.recover(developerPin, newPin, pinKey);
+              } else recovery.enrol(developerPin, operation.equals("recovery-rotate"));
+            } finally {
+              Arrays.fill(developerPin, '\0');
+              Arrays.fill(newPin, '\0');
+              Arrays.fill(confirmation, '\0');
+            }
           }
         }
         case "bootstrap-staff" -> {

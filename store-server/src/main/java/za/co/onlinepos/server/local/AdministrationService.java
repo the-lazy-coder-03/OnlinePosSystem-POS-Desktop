@@ -66,6 +66,25 @@ public class AdministrationService {
     return session;
   }
 
+  public JsonNode recoveryStatus(String token, String terminal) {
+    require(token, terminal, "module.administration", true);
+    return journal.parse(
+        jdbc.queryForObject(
+            "SELECT pos.developer_recovery_status(?,?)::text",
+            String.class,
+            CommandJournal.digest(token),
+            terminal));
+  }
+
+  public void disableRecovery(String token, String terminal) {
+    require(token, terminal, "module.administration", true);
+    jdbc.queryForObject(
+        "SELECT pos.disable_developer_recovery(?,?)",
+        Object.class,
+        CommandJournal.digest(token),
+        terminal);
+  }
+
   public Map<String, Object> overview(String token, String terminal) {
     var session = require(token, terminal, "module.administration", false);
     var result = new HashMap<String, Object>();

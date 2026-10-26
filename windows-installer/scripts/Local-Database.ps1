@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][ValidateSet('BootstrapStaff','Backup','SetPin','AssignRoles','SetRole','SetOwner')][string]$Operation,[string]$Username,[string]$Destination,[string]$Role,[string]$Roles,[string]$Permissions,[switch]$PasswordStdin)
+param([Parameter(Mandatory=$true)][ValidateSet('BootstrapStaff','Backup','SetPin','AssignRoles','SetRole','SetOwner','RecoveryEnrol','RecoveryRotate','RecoveryDisable','RecoverOwner')][string]$Operation,[string]$Username,[string]$Destination,[string]$Role,[string]$Roles,[string]$Permissions,[switch]$PasswordStdin)
 $ErrorActionPreference='Stop'
 $credentialInput=@()
 function Invoke-DatabaseTool([string[]]$ToolArguments) {
@@ -36,10 +36,14 @@ $jar=Join-Path $program 'server\store-server.jar'
 if($PasswordStdin){
  $reader=New-Object IO.StreamReader([Console]::OpenStandardInput(),[Text.Encoding]::UTF8)
  $credentialInput+= $reader.ReadLine()
- if($Operation -in @('BootstrapStaff','SetPin')){$credentialInput+= $reader.ReadLine()}
+ if($Operation -in @('BootstrapStaff','SetPin','RecoveryEnrol','RecoveryRotate')){$credentialInput+= $reader.ReadLine()}
+ if($Operation -eq 'RecoverOwner'){1..3|ForEach-Object {$credentialInput+= $reader.ReadLine()}}
  if($credentialInput|Where-Object {$null -eq $_}){throw 'Credential input is incomplete'}
 }
-if($Operation -eq 'BootstrapStaff') {
+if($Operation -in @('RecoveryEnrol','RecoveryRotate','RecoveryDisable','RecoverOwner')) {
+ $operations=@{RecoveryEnrol='recovery-enrol';RecoveryRotate='recovery-rotate';RecoveryDisable='recovery-disable';RecoverOwner='recover-owner'}
+ Invoke-DatabaseTool -ToolArguments @('--database-tool='+$operations[$Operation])
+} elseif($Operation -eq 'BootstrapStaff') {
  if($Username -notmatch '^[a-z0-9._-]{3,64}$'){throw 'Supply a staff username'}
  Invoke-DatabaseTool -ToolArguments @('--database-tool=bootstrap-staff',"--username=$Username")
  if($LASTEXITCODE -ne 0){throw 'Staff bootstrap refused'}

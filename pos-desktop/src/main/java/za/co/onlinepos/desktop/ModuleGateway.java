@@ -36,6 +36,14 @@ public class ModuleGateway {
     client.identity(trust(secrets), secrets);
   }
 
+  public boolean ownerRecoveryAvailable() {
+    return new za.co.onlinepos.installation.OwnerRecoveryLauncher(root).available();
+  }
+
+  public void recoverOwner() throws Exception {
+    new za.co.onlinepos.installation.OwnerRecoveryLauncher(root).open();
+  }
+
   public JsonNode enter(PosModule module, char[] pin) throws Exception {
     byte[] body = null;
     try {

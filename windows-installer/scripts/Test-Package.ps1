@@ -147,6 +147,20 @@ try{
   if($LASTEXITCODE -ne 0){throw 'Protected PIN provisioning failed'}
   Invoke-SecretProcess -Executable $powershell -Arguments ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -Operation SetOwner -Username ci.manager -PasswordStdin') -InputLines @($password)
   if($LASTEXITCODE -ne 0){throw 'Protected owner designation failed'}
+  # Isolated CI fixture only: secrets are supplied through stdin, never process arguments.
+  $developerPin=(Get-Random -Minimum 10000 -Maximum 100000).ToString()
+  do{$recoveredPin=(Get-Random -Minimum 100000 -Maximum 1000000).ToString()}while($recoveredPin -eq $staffPin -or $recoveredPin -eq $cashierPin)
+  $managementArgs='-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$databaseScript+'" -PasswordStdin -Operation '
+  try {
+   Invoke-SecretProcess -Executable $powershell -Arguments ($managementArgs+'RecoveryEnrol') -InputLines @($password,$developerPin)
+   Invoke-SecretProcess -Executable $powershell -Arguments ($managementArgs+'RecoverOwner') -InputLines @($password,$developerPin,$recoveredPin,$recoveredPin)
+   Invoke-SecretProcess -Executable $powershell -Arguments ($managementArgs+'RecoverOwner') -InputLines @($password,$developerPin,$staffPin,$staffPin)
+   Invoke-SecretProcess -Executable $powershell -Arguments ($managementArgs+'RecoveryDisable') -InputLines @($password)
+   $denied=$false
+   try {Invoke-SecretProcess -Executable $powershell -Arguments ($managementArgs+'RecoverOwner') -InputLines @($password,$developerPin,$recoveredPin,$recoveredPin)} catch {$denied=$true}
+   if(-not $denied){throw 'Disabled recovery unexpectedly succeeded'}
+   Write-Output 'WINDOWS_DEVELOPER_RECOVERY_ENROL_RESET_DISABLE_OK'
+  } finally {$developerPin=$null;$recoveredPin=$null}
   $classes=Join-Path $out 'stage3-test-client';New-Item $classes -ItemType Directory -Force|Out-Null
   $clientPath=Join-Path $program 'desktop\app\*'
   & (Join-Path $env:JAVA_HOME 'bin\javac.exe') -cp $clientPath -d $classes (Join-Path $root 'tools\WindowsStaffSmoke.java') (Join-Path $root 'tools\WindowsLanSmoke.java')

@@ -212,6 +212,7 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     }
     if (allowed("audit.view")) addTab("Audit History", "audit.view");
     addTab("Security / Audit Tracking", null);
+    if (context.path("owner").asBoolean()) addTab("System Access", null);
   }
 
   private void addTab(String name, String permission) {
@@ -244,6 +245,7 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
             }
             case "Roles & Permissions" -> loadRoles(null);
             case "Terminals" -> loadTerminals();
+            case "System Access" -> loadSystemAccess();
             case "Audit History" -> showAudit(false);
             case "Security / Audit Tracking" -> showAudit(true);
             default -> throw new IllegalStateException();
@@ -251,6 +253,47 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
         });
     tabs.put(name, button);
     navigation.getChildren().add(button);
+  }
+
+  private void loadSystemAccess() {
+    section = "System Access";
+    selectTab(section);
+    work(
+        () -> get("system-access/developer-recovery"),
+        state -> {
+          var title = new Label("Developer Recovery");
+          var status =
+              new Label(
+                  !state.path("configured").asBoolean()
+                      ? "Not enrolled"
+                      : state.path("enabled").asBoolean() ? "Enabled" : "Disabled");
+          status.setId("developer-recovery-status");
+          var explanation =
+              new Label(
+                  "A separately enrolled developer credential can reset only the owner's PIN. "
+                      + "Recovery requires local Windows elevation and installation-administrator authentication. "
+                      + "Every attempt is audited. Enrolment and rotation are available only on the Master.");
+          explanation.setWrapText(true);
+          var disable = new Button("Disable developer recovery");
+          disable.setId("developer-recovery-disable");
+          disable.setDisable(!state.path("enabled").asBoolean());
+          disable.setOnAction(
+              e -> {
+                var confirmation =
+                    new Alert(
+                        Alert.AlertType.CONFIRMATION,
+                        "Disable developer recovery? Re-enabling requires protected enrolment on the Master.",
+                        ButtonType.OK,
+                        ButtonType.CANCEL);
+                if (confirmation.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK)
+                  work(
+                      () ->
+                          gateway.admin(
+                              "system-access/developer-recovery/disable", "PUT", null, token),
+                      result -> loadSystemAccess());
+              });
+          body.setCenter(new VBox(16, title, status, explanation, disable));
+        });
   }
 
   private void loadTerminals() {

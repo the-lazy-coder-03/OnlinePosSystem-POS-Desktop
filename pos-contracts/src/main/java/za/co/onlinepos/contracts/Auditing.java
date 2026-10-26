@@ -29,7 +29,12 @@ public final class Auditing {
     OWNER_PIN_SUCCEEDED("Security", false),
     OWNER_PIN_FAILED("Security", false),
     AUDIT_ACCESS_REFUSED("Security", false),
-    AUDIT_INTEGRITY_FAILED("Security", false);
+    AUDIT_INTEGRITY_FAILED("Security", false),
+    DEVELOPER_RECOVERY_ENROLLED("Security", false),
+    DEVELOPER_RECOVERY_ROTATED("Security", false),
+    DEVELOPER_RECOVERY_DISABLED("Security", false),
+    DEVELOPER_RECOVERY_FAILED("Security", false),
+    OWNER_PIN_RECOVERED("Security", false);
     private final String category;
     private final boolean optional;
 

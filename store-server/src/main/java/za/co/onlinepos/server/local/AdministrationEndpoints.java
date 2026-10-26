@@ -34,6 +34,17 @@ public class AdministrationEndpoints {
     return (String) request.getAttribute("pos.terminal");
   }
 
+  @GetMapping("/system-access/developer-recovery")
+  public JsonNode recovery(HttpServletRequest request) {
+    return service.recoveryStatus(token(request), terminal(request));
+  }
+
+  @PutMapping("/system-access/developer-recovery/disable")
+  public Map<String, Boolean> disableRecovery(HttpServletRequest request) {
+    service.disableRecovery(token(request), terminal(request));
+    return Map.of("enabled", false);
+  }
+
   @GetMapping("/overview")
   public Map<String, Object> overview(HttpServletRequest request) {
     return service.overview(token(request), terminal(request));

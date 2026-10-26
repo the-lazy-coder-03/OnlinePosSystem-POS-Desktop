@@ -257,7 +257,40 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
     if (getScene() != null) dialog.initOwner(getScene().getWindow());
     var enter = new ButtonType("Open module", ButtonBar.ButtonData.OK_DONE);
     dialog.getDialogPane().getButtonTypes().addAll(enter, ButtonType.CANCEL);
-    dialog.getDialogPane().setContent(new VBox(12, new Label("Enter your staff PIN"), pin, keypad));
+    var accessForm = new VBox(12, new Label("Enter your staff PIN"), pin, keypad);
+    if (gateway.ownerRecoveryAvailable()) {
+      var recovery = new Button("Forgot owner PIN");
+      recovery.setId("forgot-owner-pin");
+      recovery.setOnAction(
+          event -> {
+            pin.clear();
+            dialog.close();
+            pending = true;
+            grid.setDisable(true);
+            notice.setText("Complete the protected recovery prompt on this Master.");
+            executor.execute(
+                () -> {
+                  String message;
+                  try {
+                    gateway.recoverOwner();
+                    message = "Owner PIN reset. Enter the new owner PIN to open a module.";
+                  } catch (Exception refused) {
+                    message =
+                        "Recovery cancelled or refused. Check enrolment and cooldown on the Master.";
+                  }
+                  final String result = message;
+                  Platform.runLater(
+                      () -> {
+                        if (closed) return;
+                        pending = false;
+                        grid.setDisable(false);
+                        notice.setText(result);
+                      });
+                });
+          });
+      accessForm.getChildren().add(recovery);
+    }
+    dialog.getDialogPane().setContent(accessForm);
     dialog
         .getDialogPane()
         .lookupButton(enter)

@@ -84,7 +84,9 @@ final class SetupWizard extends BorderPane {
             review);
     form.getStyleClass().add("card");
     setCenter(form);
-    Label notice = new Label("Secure terminal setup · Sales are not available in this release.");
+    Label notice =
+        new Label(
+            "Secure terminal setup · Sales are not available in this release. Optional developer PIN recovery is disclosed in Administration → System Access and requires deliberate enrolment on the Master.");
     notice.setWrapText(true);
     notice.getStyleClass().add("notice");
     BorderPane.setMargin(notice, new Insets(22, 0, 0, 0));
