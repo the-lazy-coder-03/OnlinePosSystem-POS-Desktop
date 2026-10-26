@@ -9,6 +9,11 @@ import java.util.Map;
 import java.util.UUID;
 
 public final class WindowsProvisioner implements PlatformProvisioner {
+  @Override
+  public java.util.List<LanPolicy> networks() throws Exception {
+    return WindowsNetworks.available();
+  }
+
   public void provision(SetupRequest request, char[] password) throws Exception {
     if (!System.getProperty("os.name").startsWith("Windows"))
       throw new UnsupportedOperationException("Installation requires Windows 10/11 x64");

@@ -48,7 +48,7 @@ public class SetupPresenter {
     return CompletableFuture.supplyAsync(
         () -> {
           try {
-            return za.co.onlinepos.installation.WindowsNetworks.available();
+            return installations.networks();
           } catch (Exception e) {
             throw new java.util.concurrent.CompletionException(e);
           }

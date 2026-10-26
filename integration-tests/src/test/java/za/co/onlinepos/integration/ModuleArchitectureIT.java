@@ -14,6 +14,17 @@ class ModuleArchitectureIT {
           .importPackages("za.co.onlinepos");
 
   @Test
+  void desktopDoesNotCallWindowsNetworkEnumerationDirectly() {
+    noClasses()
+        .that()
+        .resideInAPackage("..desktop..")
+        .should()
+        .dependOnClassesThat()
+        .haveFullyQualifiedName("za.co.onlinepos.installation.WindowsNetworks")
+        .check(classes);
+  }
+
+  @Test
   void domainAndContractsStayIndependentOfUiServerAndDatabaseFrameworks() {
     noClasses()
         .that()

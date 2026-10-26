@@ -9,6 +9,11 @@ public final class DefaultInstallationService implements InstallationService {
     this.provisioner = provisioner;
   }
 
+  @Override
+  public java.util.List<LanPolicy> networks() throws Exception {
+    return provisioner.networks();
+  }
+
   public void install(SetupRequest request, char[] password) throws Exception {
     try {
       if (request.role() != za.co.onlinepos.contracts.InstallationRole.SLAVE && password.length < 5)

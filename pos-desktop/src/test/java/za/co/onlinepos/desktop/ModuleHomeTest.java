@@ -411,6 +411,15 @@ class ModuleHomeTest {
       var presenter =
           new za.co.onlinepos.desktop.setup.SetupPresenter(null, null, null, executor, null) {
             @Override
+            public CompletableFuture<java.util.List<za.co.onlinepos.installation.LanPolicy>>
+                networks() {
+              return CompletableFuture.completedFuture(
+                  java.util.List.of(
+                      new za.co.onlinepos.installation.LanPolicy(
+                          "test-adapter", "Store Ethernet", "192.168.1.10", 24)));
+            }
+
+            @Override
             public CompletableFuture<java.util.Optional<Installation>> currentInstallation() {
               return CompletableFuture.completedFuture(saved.get());
             }
