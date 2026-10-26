@@ -8,10 +8,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class RecoveryConsoleIT {
   @Test
-  void redirectedRecoveryCannotSilentlyFallBackToUnmaskedInput() throws Exception {
+  void redirectedRecoveryCannotSilentlyFallBackToUnmaskedInput(@TempDir Path root)
+      throws Exception {
     var java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
     var jar =
         Path.of("..", "store-server", "target", "store-server-0.1.0-SNAPSHOT-exec.jar")
@@ -19,10 +21,11 @@ class RecoveryConsoleIT {
             .normalize()
             .toString();
     for (String operation : new String[] {"recovery-enrol", "recovery-rotate", "recover-owner"}) {
-      var process =
+      var builder =
           new ProcessBuilder(java, "-jar", jar, "--database-tool=" + operation)
-              .redirectErrorStream(true)
-              .start();
+              .redirectErrorStream(true);
+      builder.environment().put("POS_DATA_ROOT", root.toString());
+      var process = builder.start();
       try {
         process.getOutputStream().close();
         assertTrue(process.waitFor(30, TimeUnit.SECONDS));
