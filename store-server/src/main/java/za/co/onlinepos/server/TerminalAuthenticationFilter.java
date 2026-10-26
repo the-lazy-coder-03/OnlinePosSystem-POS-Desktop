@@ -46,8 +46,8 @@ public final class TerminalAuthenticationFilter extends OncePerRequestFilter {
     }
     if (request.getRequestURI().startsWith("/api/local/setup/")) {
       response.setHeader("Cache-Control", "no-store");
-      if (!request.getMethod().equals("GET")
-          && (request.getContentLengthLong() < 0 || request.getContentLengthLong() > 16384)) {
+      if (request.getContentLengthLong() > 16384
+          || (!request.getMethod().equals("GET") && request.getContentLengthLong() < 0)) {
         response.sendError(413);
         return;
       }

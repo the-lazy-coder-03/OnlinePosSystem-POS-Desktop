@@ -194,6 +194,26 @@ public final class SetupTool {
               // Existing protected invitation tooling remains compatible during upgrades.
               var invitation =
                   JsonFiles.JSON.readValue(request.invitation(), Pairing.Invitation.class);
+              final LanPolicy approvedNetwork = selected;
+              var source = java.net.URI.create(invitation.endpoint());
+              var address =
+                  java.util.Arrays.stream(java.net.InetAddress.getAllByName(source.getHost()))
+                      .filter(
+                          ip ->
+                              ip instanceof java.net.Inet4Address
+                                  && approvedNetwork.contains(ip.getHostAddress()))
+                      .findFirst()
+                      .orElseThrow(
+                          () ->
+                              new SecurityException(
+                                  "Invitation Master is outside the approved store LAN"));
+              invitation =
+                  LanPairingClient.at(
+                      invitation,
+                      "https://"
+                          + address.getHostAddress()
+                          + ":"
+                          + (source.getPort() < 0 ? 443 : source.getPort()));
               if (invitation.branchId() != request.branchId())
                 throw new SecurityException("Wrong branch");
               if (Files.exists(root.resolve("secrets/pairing-trust.dpapi"))) {

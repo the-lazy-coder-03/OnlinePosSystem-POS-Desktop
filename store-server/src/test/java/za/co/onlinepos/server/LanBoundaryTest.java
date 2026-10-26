@@ -39,6 +39,16 @@ class LanBoundaryTest {
         new MockHttpServletResponse(),
         (r, s) -> reached.set(true));
     assertTrue(reached.get());
+    var oversized = request("192.168.1.20", "192.168.1.5");
+    oversized.setContent(new byte[16385]);
+    var refused = new MockHttpServletResponse();
+    filter.doFilter(
+        oversized,
+        refused,
+        (r, s) -> {
+          throw new AssertionError("Oversized bootstrap request admitted");
+        });
+    assertEquals(413, refused.getStatus());
   }
 
   private MockHttpServletRequest request(String peer, String local) {
