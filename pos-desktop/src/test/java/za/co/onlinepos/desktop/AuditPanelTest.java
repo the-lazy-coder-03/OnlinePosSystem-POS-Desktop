@@ -234,7 +234,13 @@ class AuditPanelTest {
               button(panel, "Reload").fire();
               return null;
             });
-        await(() -> !((CheckBox) panel.lookup("#track-DRAFT_CANCELLED")).isSelected());
+        await(
+            () -> {
+              panel.applyCss();
+              panel.layout();
+              var toggle = (CheckBox) panel.lookup("#track-DRAFT_CANCELLED");
+              return toggle != null && !toggle.isSelected();
+            });
       } finally {
         fx(
             () -> {
