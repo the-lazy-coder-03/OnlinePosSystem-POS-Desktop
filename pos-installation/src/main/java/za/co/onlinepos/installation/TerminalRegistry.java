@@ -28,7 +28,10 @@ public final class TerminalRegistry {
       long registeredAt,
       String address,
       long lastSeen) {
-    public Terminal { if (name == null) name = "Terminal"; }
+    public Terminal {
+      if (name == null) name = "Terminal";
+    }
+
     public Terminal(String certificateFingerprint, boolean revoked) {
       this(certificateFingerprint, revoked, null, null, "Terminal", 0, null, 0);
     }
