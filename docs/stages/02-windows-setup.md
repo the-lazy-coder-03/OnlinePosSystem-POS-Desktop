@@ -87,7 +87,7 @@ persisted retry limits remain enabled; this credential does not grant future sta
 Close JavaFX and use the application uninstaller. It stops/removes app-owned services and rules before
 removing binaries, cancelling when safe service shutdown fails. ProgramData, identities, keys, databases
 and future terminal queues remain. Reinstall matching components and run protected repair; never delete
-populated data or initialize over it. See [Windows operations](../development/stage2-windows.md).
+populated data or initialize over it. See [Windows operations](../../MD%20files/stage2-windows.md).
 
 Review Stage 2 and its unsigned artifacts. Stage 3, production signing/release, live installation and
 branch activation require separate explicit approval. None has started.

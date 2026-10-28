@@ -1,4 +1,4 @@
-package za.co.onlinepos.desktop.customers;
+package za.co.onlinepos.contracts;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

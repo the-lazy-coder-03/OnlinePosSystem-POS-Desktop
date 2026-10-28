@@ -18,12 +18,17 @@ public class LocalOperations {
   private final JdbcTemplate jdbc;
   private final CommandJournal journal;
   private final LocalDatabase.Identity identity;
+  private final za.co.onlinepos.server.local.ItemCustomizationService customization;
 
   public LocalOperations(
-      JdbcTemplate jdbc, CommandJournal journal, LocalDatabase.Identity identity) {
+      JdbcTemplate jdbc,
+      CommandJournal journal,
+      LocalDatabase.Identity identity,
+      za.co.onlinepos.server.local.ItemCustomizationService customization) {
     this.jdbc = jdbc;
     this.journal = journal;
     this.identity = identity;
+    this.customization = customization;
   }
 
   public void branch(int branch) {
@@ -119,27 +124,62 @@ public class LocalOperations {
         draft.commandId(),
         actor,
         "DRAFT_CREATED",
-        draft,
+        draftPayload(draft),
         () -> {
+          if (!jdbc.queryForObject(
+              "SELECT active AND NOT archived FROM pos.store_identity", Boolean.class))
+            throw new LocalFailure(409, "This store is disabled; new drafts are unavailable");
           if (jdbc.queryForObject(
                   "SELECT count(*) FROM pos.order_draft WHERE sync_id=?",
                   Integer.class,
                   draft.orderId())
               > 0) throw new LocalFailure(409, "Order identity already exists");
+          if (draft.customerId() != null) {
+            if (jdbc.queryForObject(
+                    "SELECT count(*) FROM pos.staff_role r JOIN pos.role_permission p ON p.branch_id=r.branch_id AND p.role_name=r.role_name WHERE r.branch_id=? AND r.staff_id=? AND p.permission='customers.view'",
+                    Integer.class,
+                    identity.branchId(),
+                    actor.staffId())
+                == 0) throw new LocalFailure(403, "Customer lookup permission required");
+          }
           BigDecimal total = BigDecimal.ZERO.setScale(2);
           var snapshots = new java.util.ArrayList<Map<String, Object>>();
+          var catalog = customization.catalog(false);
           for (var line : draft.lines()) {
+            var baseProduct = catalog.products().get(line.priceId());
+            if (baseProduct != null && line.customization() == null) {
+              var effective =
+                  za.co.onlinepos.contracts.ItemCustomization.effective(catalog, baseProduct);
+              if (effective.combo() != null
+                  || effective.groups().stream()
+                      .anyMatch(
+                          g ->
+                              g.min() > 0
+                                  || g.choices().stream()
+                                      .anyMatch(
+                                          o -> o.defaultSelected() && o.surcharge().signum() > 0)))
+                throw new LocalFailure(
+                    400, "Configure and quote this item before creating the draft");
+            }
+            var quote =
+                customization.price(
+                    catalog,
+                    new za.co.onlinepos.contracts.ItemCustomization.QuoteRequest(
+                        line.priceId(),
+                        line.expectedPriceRevision(),
+                        line.quantity(),
+                        line.customization()));
             var rows =
                 jdbc.queryForList(
-                    "SELECT p.amount,p.revision,c.description,c.definition::text FROM pos.branch_price p JOIN pos.catalog_item c ON c.branch_id=p.branch_id AND c.item_id=p.item_id WHERE p.branch_id=? AND p.price_id=? AND p.revision=? AND p.available",
+                    "SELECT p.amount,p.revision,c.description,c.definition::text FROM pos.branch_price p JOIN pos.catalog_item c ON c.branch_id=p.branch_id AND c.item_id=p.item_id WHERE p.branch_id=? AND p.price_id=? AND p.revision=?",
                     identity.branchId(),
                     line.priceId(),
                     line.expectedPriceRevision());
             if (rows.isEmpty())
               throw new LocalFailure(409, "Price unavailable or changed; refresh the draft");
             var row = rows.getFirst();
-            BigDecimal amount = (BigDecimal) row.get("amount");
-            total = total.add(amount.multiply(BigDecimal.valueOf(line.quantity())));
+            BigDecimal amount = quote.unitPrice();
+            total = total.add(quote.total());
             snapshots.add(
                 Map.of(
                     "lineId",
@@ -155,7 +195,9 @@ public class LocalOperations {
                     "priceRevision",
                     line.expectedPriceRevision(),
                     "definition",
-                    journal.parse((String) row.get("definition"))));
+                    journal.parse((String) row.get("definition")),
+                    "customization",
+                    quote));
           }
           if (total.precision() > 19)
             throw new LocalFailure(400, "Draft total exceeds supported amount");
@@ -166,7 +208,7 @@ public class LocalOperations {
               identity.branchId(),
               reference,
               total);
-          for (var snapshot : snapshots)
+          for (var snapshot : snapshots) {
             jdbc.update(
                 "INSERT INTO pos.order_line(line_id,branch_id,order_id,price_id,description,quantity,unit_price,price_revision,snapshot) VALUES (?,?,?,?,?,?,?,?,?::jsonb)",
                 snapshot.get("lineId"),
@@ -178,33 +220,93 @@ public class LocalOperations {
                 snapshot.get("unitPrice"),
                 snapshot.get("priceRevision"),
                 journal.encode(snapshot));
+            var resolved =
+                (za.co.onlinepos.contracts.ItemCustomization.Quote) snapshot.get("customization");
+            for (var charge : resolved.charges())
+              if (charge.amount().signum() > 0)
+                jdbc.update(
+                    "INSERT INTO pos.order_line_extra(extra_id,branch_id,line_id,snapshot,amount) VALUES (?,?,?,?::jsonb,?)",
+                    UUID.randomUUID(),
+                    identity.branchId(),
+                    snapshot.get("lineId"),
+                    journal.encode(Map.of("charge", charge, "quantity", resolved.quantity())),
+                    charge.amount().multiply(BigDecimal.valueOf(resolved.quantity())));
+          }
           var result =
-              Map.of(
-                  "orderId",
-                  draft.orderId(),
-                  "state",
-                  "DRAFT",
-                  "revision",
-                  0,
-                  "total",
-                  total,
-                  "reference",
-                  reference,
-                  "lines",
-                  snapshots);
-          journal.event(actor, "DRAFT_CREATED", draft.orderId(), 0, draft.commandId(), result);
+              new java.util.LinkedHashMap<String, Object>(
+                  Map.of(
+                      "orderId",
+                      draft.orderId(),
+                      "state",
+                      "DRAFT",
+                      "revision",
+                      0,
+                      "total",
+                      total,
+                      "reference",
+                      reference,
+                      "lines",
+                      snapshots));
+          if (draft.customerId() != null) {
+            jdbc.update(
+                "UPDATE pos.order_draft SET customer_id=? WHERE branch_id=? AND sync_id=?",
+                draft.customerId(),
+                identity.branchId(),
+                draft.orderId());
+            var customer =
+                jdbc.queryForMap(
+                    "SELECT customer_id,customer_snapshot::text FROM pos.order_draft WHERE branch_id=? AND sync_id=?",
+                    identity.branchId(),
+                    draft.orderId());
+            result.put("customerId", customer.get("customer_id"));
+            result.put(
+                "customerSnapshot", journal.parse(customer.get("customer_snapshot").toString()));
+          }
+          journal.event(
+              actor,
+              "DRAFT_CREATED",
+              draft.orderId(),
+              0,
+              draft.commandId(),
+              result,
+              Map.of("orderId", draft.orderId(), "state", "DRAFT", "revision", 0, "total", total));
           return journal.tree(result);
         });
+  }
+
+  private Object draftPayload(LocalCommands.CreateDraft draft) {
+    var payload = new java.util.LinkedHashMap<String, Object>();
+    payload.put("commandId", draft.commandId());
+    payload.put("orderId", draft.orderId());
+    payload.put(
+        "lines",
+        draft.lines().stream()
+            .map(
+                line -> {
+                  var value = new java.util.LinkedHashMap<String, Object>();
+                  value.put("lineId", line.lineId());
+                  value.put("priceId", line.priceId());
+                  value.put("expectedPriceRevision", line.expectedPriceRevision());
+                  value.put("quantity", line.quantity());
+                  if (line.customization() != null)
+                    value.put("customization", line.customization());
+                  return value;
+                })
+            .toList());
+    if (draft.customerId() != null) payload.put("customerId", draft.customerId());
+    return payload;
   }
 
   public JsonNode draft(UUID id) {
     var rows =
         jdbc.queryForList(
-            "SELECT sync_id,state,revision,total,provisional_reference FROM pos.order_draft WHERE branch_id=? AND sync_id=?",
+            "SELECT sync_id,state,revision,total,provisional_reference,customer_id,customer_snapshot::text FROM pos.order_draft WHERE branch_id=? AND sync_id=?",
             identity.branchId(),
             id);
     if (rows.isEmpty()) throw new LocalFailure(404, "Draft not found");
     var result = rows.getFirst();
+    if (result.get("customer_snapshot") != null)
+      result.put("customer_snapshot", journal.parse(result.get("customer_snapshot").toString()));
     result.put(
         "lines",
         jdbc.query(

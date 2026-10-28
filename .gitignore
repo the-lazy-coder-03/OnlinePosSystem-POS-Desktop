@@ -17,3 +17,5 @@ logs/
 
 *.dpapi
 **/administrator.json
+
+__pycache__/

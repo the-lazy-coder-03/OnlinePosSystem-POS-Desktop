@@ -20,6 +20,7 @@ public final class RbacProvisioning {
     result.addAll(
         Set.of(
             "staff.manage", "rbac.manage", "audit.view", "catalogue.manage", "sales.layouts.edit"));
+    result.addAll(za.co.onlinepos.contracts.Customers.PERMISSIONS);
     return result;
   }
 

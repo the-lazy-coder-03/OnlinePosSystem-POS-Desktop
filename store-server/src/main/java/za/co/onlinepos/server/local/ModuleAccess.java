@@ -22,7 +22,11 @@ import za.co.onlinepos.contracts.PosModule;
 @Service
 @Profile({"installed", "local-store"})
 public class ModuleAccess {
-  public record Entry(String pin, PosModule module) {
+  public record Entry(String pin, PosModule module, UUID staffId) {
+    public Entry(String pin, PosModule module) {
+      this(pin, module, null);
+    }
+
     @Override
     public String toString() {
       return "Entry[REDACTED]";
@@ -105,13 +109,19 @@ public class ModuleAccess {
                 var rows =
                     pin.length == 6 && new String(pin).matches("[0-9]{6}")
                         ? jdbc.queryForList(
-                            "SELECT s.staff_id,s.username,s.enabled,s.credential_version,p.hash FROM pos.staff_pin p JOIN pos.staff s ON s.staff_id=p.staff_id AND s.branch_id=p.branch_id WHERE p.branch_id=? AND p.lookup=?",
+                            "SELECT s.staff_id,s.username,s.enabled,s.credential_version,p.verifier AS hash FROM pos.staff_auth_method p JOIN pos.staff s ON s.staff_id=p.staff_id AND s.branch_id=p.branch_id WHERE p.branch_id=? AND p.lookup=? AND p.method='PIN' AND p.account_type='LOCAL' AND s.account_type='LOCAL' AND p.enabled AND p.credential_version=s.credential_version",
                             identity.branchId(),
                             lookup(key, identity.branchId(), pin))
                         : List.<Map<String, Object>>of();
-                var row = rows.isEmpty() ? null : rows.getFirst();
+                var row =
+                    za.co.onlinepos.server.auth.PinIdentitySelection.select(
+                        rows, request.staffId());
                 boolean valid =
-                    Passwords.matches(pin, row == null ? dummy : (String) row.get("hash"));
+                    new za.co.onlinepos.server.auth.PinAuthenticationProvider()
+                        .verify(
+                            row == null ? null : (UUID) row.get("staff_id"),
+                            pin,
+                            row == null ? dummy : (String) row.get("hash"));
                 boolean designatedOwner =
                     row != null
                         && jdbc.queryForObject(
@@ -253,7 +263,7 @@ public class ModuleAccess {
       throw new LocalFailure(401, "Module session required");
     var rows =
         jdbc.queryForList(
-            "SELECT t.staff_id,s.username,t.module,t.credential_version FROM pos.module_session t JOIN pos.staff s ON s.staff_id=t.staff_id AND s.branch_id=t.branch_id WHERE t.token_hash=? AND t.branch_id=? AND t.terminal_identity=? AND t.expires_at>clock_timestamp() AND s.enabled AND t.credential_version=s.credential_version",
+            "SELECT t.staff_id,s.username,t.module,t.credential_version FROM pos.module_session t JOIN pos.staff s ON s.staff_id=t.staff_id AND s.branch_id=t.branch_id WHERE t.token_hash=? AND t.branch_id=? AND t.terminal_identity=? AND t.expires_at>clock_timestamp() AND s.enabled AND s.account_type='LOCAL' AND t.credential_version=s.credential_version",
             CommandJournal.digest(token),
             identity.branchId(),
             terminal);

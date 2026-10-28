@@ -1,32 +1,33 @@
 package za.co.onlinepos.contracts;
 
-/** Cloud seed identities; bootstrap must still verify them against its snapshot. */
-public enum Branch {
-  KENRIDGE(1, "Kenridge"),
-  UITZICHT(2, "Uitzicht");
+/**
+ * Persisted branch identity. Legacy constants are aliases, not an allowlist or provisioning seed.
+ */
+public record Branch(int id, String displayName) {
+  public static final Branch KENRIDGE = new Branch(1, "Kenridge");
+  public static final Branch UITZICHT = new Branch(2, "Uitzicht");
 
-  private final int id;
-  private final String displayName;
-
-  Branch(int id, String displayName) {
-    this.id = id;
-    this.displayName = displayName;
+  public Branch {
+    if (id <= 0) throw new IllegalArgumentException("Positive store ID required");
+    if (displayName == null || displayName.isBlank() || displayName.length() > 200)
+      throw new IllegalArgumentException("Store name required");
   }
 
-  public int id() {
-    return id;
-  }
-
-  public String displayName() {
-    return displayName;
-  }
-
+  /** Identity validation only; names must be loaded from the store repository for presentation. */
   public static Branch fromId(int id) {
-    for (Branch branch : values()) {
-      if (branch.id == id) {
-        return branch;
-      }
-    }
-    throw new IllegalArgumentException("Unknown branch ID: " + id);
+    if (id == 1) return KENRIDGE;
+    if (id == 2) return UITZICHT;
+    return new Branch(id, "Store " + id);
+  }
+
+  /** Compatibility for legacy callers; never use this as the available-store directory. */
+  @Deprecated
+  public static Branch[] values() {
+    return new Branch[] {KENRIDGE, UITZICHT};
+  }
+
+  @Override
+  public String toString() {
+    return displayName;
   }
 }

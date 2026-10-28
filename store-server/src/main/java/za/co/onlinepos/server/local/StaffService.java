@@ -74,7 +74,7 @@ public class StaffService {
                 journal.lockStream();
                 var rows =
                     jdbc.queryForList(
-                        "SELECT * FROM pos.staff WHERE branch_id=? AND username=? FOR UPDATE",
+                        "SELECT s.*,a.verifier AS verification_hash FROM pos.staff s JOIN pos.staff_auth_method a ON a.branch_id=s.branch_id AND a.staff_id=s.staff_id AND a.method='PASSWORD' AND a.account_type='LOCAL' AND a.enabled AND a.credential_version=s.credential_version WHERE s.branch_id=? AND s.username=? AND s.account_type='LOCAL' FOR UPDATE OF s",
                         identity.branchId(),
                         request.username().toLowerCase(java.util.Locale.ROOT));
                 if (rows.isEmpty()) {
@@ -88,7 +88,7 @@ public class StaffService {
                     || !(Boolean) row.get("enabled")
                     || (locked != null && locked.toInstant().isAfter(java.time.Instant.now())))
                   return null;
-                if (!Passwords.matches(password, (String) row.get("password_hash"))) {
+                if (!Passwords.matches(password, (String) row.get("verification_hash"))) {
                   jdbc.update(
                       "UPDATE pos.staff SET failed_attempts=failed_attempts+1,locked_until=CASE WHEN failed_attempts>=4 THEN clock_timestamp()+interval '5 minutes' ELSE NULL END WHERE staff_id=?",
                       id);
@@ -132,7 +132,7 @@ public class StaffService {
       throw new LocalFailure(401, "Staff session required");
     var actors =
         jdbc.query(
-            "SELECT s.staff_id,s.role,s.credential_version FROM pos.staff_session t JOIN pos.staff s ON s.staff_id=t.staff_id AND s.branch_id=t.branch_id WHERE t.token_hash=? AND t.branch_id=? AND t.terminal_identity=? AND t.expires_at>clock_timestamp() AND t.credential_version=s.credential_version AND s.enabled AND s.password_login_enabled",
+            "SELECT s.staff_id,s.role,s.credential_version FROM pos.staff_session t JOIN pos.staff s ON s.staff_id=t.staff_id AND s.branch_id=t.branch_id WHERE t.token_hash=? AND t.branch_id=? AND t.terminal_identity=? AND t.expires_at>clock_timestamp() AND t.credential_version=s.credential_version AND s.enabled AND s.account_type='LOCAL' AND s.password_login_enabled",
             (rs, n) ->
                 new Actor(rs.getObject(1, UUID.class), rs.getString(2), terminal, rs.getLong(3)),
             CommandJournal.digest(token),

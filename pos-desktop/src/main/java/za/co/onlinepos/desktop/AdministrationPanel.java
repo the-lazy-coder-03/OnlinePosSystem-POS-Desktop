@@ -46,6 +46,7 @@ import za.co.onlinepos.installation.TrustedStoreClient;
 /** Session-local forms; closing clears inputs and ignores all outstanding responses. */
 final class AdministrationPanel extends BorderPane implements AutoCloseable {
   private AuditPanel auditPanel;
+  private StoreManagementPanel storePanel;
   private final javafx.animation.Timeline terminalRefresh = new javafx.animation.Timeline();
   private final ModuleGateway gateway;
   private final ExecutorService executor;
@@ -95,7 +96,10 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     heading.getStyleClass().add("home-title");
     var home = new Button("Home / Lock");
     home.setId("home-lock");
-    home.setOnAction(e -> lock.accept(""));
+    home.setOnAction(
+        e -> {
+          if (!(gateway instanceof DevGateway) || confirmClose()) lock.accept("");
+        });
     var spacer = new Region();
     HBox.setHgrow(spacer, Priority.ALWAYS);
     var header =
@@ -212,7 +216,10 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     }
     if (allowed("audit.view")) addTab("Audit History", "audit.view");
     addTab("Security / Audit Tracking", null);
-    if (context.path("owner").asBoolean()) addTab("System Access", null);
+    if (context.path("owner").asBoolean()) {
+      addTab("Store Management", null);
+      addTab("System Access", null);
+    }
   }
 
   private void addTab(String name, String permission) {
@@ -246,6 +253,23 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
             case "Roles & Permissions" -> loadRoles(null);
             case "Terminals" -> loadTerminals();
             case "System Access" -> loadSystemAccess();
+            case "Store Management" -> {
+              if (gateway instanceof PreviewGateway)
+                body.setCenter(new Label("Store setup is unavailable in sample preview."));
+              else {
+                storePanel =
+                    new StoreManagementPanel(
+                        gateway,
+                        executor,
+                        token,
+                        () -> {
+                          storePanel = null;
+                          section = "Overview";
+                          refreshContext();
+                        });
+                body.setCenter(storePanel);
+              }
+            }
             case "Audit History" -> showAudit(false);
             case "Security / Audit Tracking" -> showAudit(true);
             default -> throw new IllegalStateException();
@@ -411,6 +435,11 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
   }
 
   private boolean discard() {
+    if (storePanel != null) {
+      if (!storePanel.confirmClose()) return false;
+      storePanel.close();
+      storePanel = null;
+    }
     if (!dirty) return true;
     var alert =
         new Alert(
@@ -444,7 +473,21 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     var content =
         new VBox(
             18, title("Overview"), new Label("Manage staff and store access from the sidebar."));
-    if (!context.path("ownerConfigured").asBoolean()) {
+    if (context.path("authenticationDeferred").asBoolean()) {
+      content
+          .getChildren()
+          .add(new Label("Development H2 — staff/PIN/role and owner administration are deferred."));
+      content
+          .getChildren()
+          .add(
+              new Label(
+                  "Customers: "
+                      + context.path("customerCount").asLong()
+                      + " · Drafts: "
+                      + context.path("draftCount").asLong()
+                      + " · Pending delivery (disabled): "
+                      + context.path("pendingOutbox").asLong()));
+    } else if (!context.path("ownerConfigured").asBoolean()) {
       var notice =
           new Label(
               "A store owner has not been designated. Use protected local administration to configure the owner before setting staff PINs.");
@@ -951,9 +994,17 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     return URLEncoder.encode(value, StandardCharsets.UTF_8);
   }
 
+  boolean confirmClose() {
+    return !busy && discard();
+  }
+
   @Override
   public void close() {
     closed = true;
+    if (storePanel != null) {
+      storePanel.close();
+      storePanel = null;
+    }
     terminalRefresh.stop();
     if (auditPanel != null) {
       auditPanel.close();

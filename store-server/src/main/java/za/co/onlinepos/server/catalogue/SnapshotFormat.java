@@ -24,8 +24,28 @@ public final class SnapshotFormat {
   private final JsonNode schema;
 
   public SnapshotFormat() {
+    this(false);
+  }
+
+  public SnapshotFormat(boolean management) {
     try (var input = getClass().getResourceAsStream("/catalogue-schema-v1.json")) {
       schema = json.readTree(input);
+      if (management)
+        for (String category : List.of("menu_category", "pizza_category")) {
+          ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path(category).path("columns"))
+              .putObject("archived")
+              .put("type", "BOOLEAN")
+              .put("required", false);
+          ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path(category).path("columns"))
+              .putObject("parent_id")
+              .put("type", "INT")
+              .put("required", false);
+          ((com.fasterxml.jackson.databind.node.ObjectNode)
+                  schema.path(category).path("references"))
+              .putArray("parent_id")
+              .add(category)
+              .add(category.equals("menu_category") ? "id" : "pizza_category_id");
+        }
     } catch (Exception failure) {
       throw new IllegalStateException("Catalogue schema unavailable", failure);
     }
@@ -120,13 +140,18 @@ public final class SnapshotFormat {
         row.fieldNames().forEachRemaining(fields::add);
         var columns = new HashSet<String>();
         spec.get("columns").fieldNames().forEachRemaining(columns::add);
+        // Existing imported records predate the optional archive flag.
+        if (columns.contains("archived") && !fields.contains("archived"))
+          columns.remove("archived");
+        if (columns.contains("parent_id") && !fields.contains("parent_id"))
+          columns.remove("parent_id");
         if (!fields.equals(columns)) bad("Unexpected columns in " + table);
         spec.get("columns")
             .properties()
             .forEach(
                 e -> {
                   JsonNode v = row.get(e.getKey());
-                  if (v.isNull()) {
+                  if (v == null || v.isNull()) {
                     if (e.getValue().get("required").asBoolean()) bad("Missing required column");
                   } else {
                     switch (e.getValue().get("type").asText()) {
@@ -185,9 +210,24 @@ public final class SnapshotFormat {
     }
     if (rows(s, "branch").size() != 1 || !rows(s, "branch").getFirst().path("active").asBoolean())
       bad("Inactive or missing branch");
-    String branchName = s.branchId() == 1 ? "Kenridge" : "Uitzicht";
-    if (!branchName.equals(rows(s, "branch").getFirst().path("name").asText()))
+    var branch = rows(s, "branch").getFirst();
+    if (branch.path("branch_id").asInt() != s.branchId() || branch.path("name").asText().isBlank())
       bad("Branch identity mismatch");
+    for (String category : List.of("menu_category", "pizza_category")) {
+      String id = category.equals("menu_category") ? "id" : "pizza_category_id";
+      var parents = new java.util.HashMap<Long, Long>();
+      for (var row : rows(s, category))
+        if (row.hasNonNull("parent_id"))
+          parents.put(row.path(id).asLong(), row.path("parent_id").asLong());
+      for (Long start : parents.keySet()) {
+        var visited = new java.util.HashSet<Long>();
+        Long current = start;
+        while (current != null) {
+          if (!visited.add(current)) bad("Category hierarchy contains a cycle");
+          current = parents.get(current);
+        }
+      }
+    }
     // Every nullable and non-nullable foreign key is checked before any write.
     for (String table : allowed)
       for (JsonNode row : rows(s, table)) {
@@ -198,7 +238,7 @@ public final class SnapshotFormat {
             .forEach(
                 e -> {
                   var value = row.get(e.getKey());
-                  if (!value.isNull()) {
+                  if (value != null && !value.isNull()) {
                     String target = e.getValue().get(0).asText();
                     String column = e.getValue().get(1).asText();
                     if (rows(s, target).stream().noneMatch(r -> r.get(column).equals(value)))

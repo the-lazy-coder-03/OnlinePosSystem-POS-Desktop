@@ -1,3 +1,11 @@
+# Approved LAN setup — 26 October 2026
+
+**Current flow: Choose branch → Choose Slave → Enter Master LAN IP → Connect → POS grid.** There is no joining passcode or individual Master approval. New devices may register on the configured store LAN at any time, using first-use trust followed by pinned CA/branch/cluster and terminal-certificate checks. Master administration retains its existing authentication.
+
+The original request below is retained as background. Its approval and unauthorised-LAN-device exclusion requirements are superseded by the approved implementation override at the end. Current implementation, security boundaries and tests are described in [LAN setup](lan-setup.md).
+
+---
+
 ## Additional Phase: Simplify Master and Slave LAN Connection
 
 ### Objective

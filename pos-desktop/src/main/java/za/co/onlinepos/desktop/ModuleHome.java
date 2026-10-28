@@ -19,6 +19,7 @@ import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.RowConstraints;
@@ -34,6 +35,8 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   private final ModuleGateway gateway;
   private final String storeLabel;
   private AdministrationPanel administration;
+  private LocalDataManager dataManager;
+  private CustomersPanel customersPanel;
   private CataloguePanel catalogue;
   private final Label status = new Label("Checking store connection…");
   private final Label notice = new Label();
@@ -49,6 +52,8 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   private long lastConnectionCheck;
   private long connectionInterval = java.time.Duration.ofSeconds(1).toNanos();
   private boolean closed;
+  private StoreManagementPanel storeManagement;
+  private ItemWorkbench salesBuilder;
   private long generation;
   private Dialog<ButtonType> pinDialog;
 
@@ -63,10 +68,7 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
       java.util.function.LongSupplier clock) {
     this.clock = clock;
     this.gateway = gateway;
-    this.storeLabel =
-        za.co.onlinepos.contracts.Branch.fromId(installation.branchId()).displayName()
-            + " · "
-            + installation.terminalName();
+    this.storeLabel = "Store " + installation.branchId() + " · " + installation.terminalName();
     this.executor = executor;
     getStyleClass().add("module-home");
     var title = new Label("OnlinePOS");
@@ -80,6 +82,32 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
     masterAddress.setManaged(masterAddress.isVisible());
     header = new VBox(6, title, identity, masterAddress, status, notice);
     header.setPadding(new Insets(24));
+    if (gateway instanceof DevGateway development) {
+      var open = new javafx.scene.control.MenuItem("Local Data Manager");
+      open.setId("open-local-data-manager");
+      open.setOnAction(
+          event -> {
+            dataManager =
+                new LocalDataManager(
+                    development,
+                    executor,
+                    () -> {
+                      dataManager = null;
+                      setTop(header);
+                      setCenter(grid);
+                    });
+            setTop(null);
+            setCenter(dataManager);
+          });
+      var developer = new javafx.scene.control.Menu("Developer Tools");
+      developer.getItems().add(open);
+      var settings = new javafx.scene.control.Menu("Settings");
+      var manageStore = new javafx.scene.control.MenuItem("Store Management");
+      manageStore.setId("settings-store-management");
+      manageStore.setOnAction(e -> openStoreManagement());
+      settings.getItems().addAll(manageStore, developer);
+      header.getChildren().add(new javafx.scene.control.MenuBar(settings));
+    }
     setTop(header);
     grid.setId("module-grid");
     grid.setHgap(18);
@@ -130,7 +158,9 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
         button.setWrapText(true);
         button.setOnAction(
             event -> {
-              if (module == PosModule.SALES_ORDERS) openSales();
+              if (gateway instanceof DevGateway) {
+                showModule(module, "Development actor");
+              } else if (module == PosModule.SALES_ORDERS) openSales();
               else if (gateway instanceof PreviewGateway) openPreview(module);
               else prompt(module);
             });
@@ -167,6 +197,22 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
     timer.setCycleCount(Timeline.INDEFINITE);
     timer.play();
     checkConnection();
+  }
+
+  void openStoreManagement() {
+    if (!(gateway instanceof DevGateway development))
+      throw new IllegalStateException("Development store backend required");
+    storeManagement =
+        new StoreManagementPanel(
+            development,
+            executor,
+            () -> {
+              storeManagement = null;
+              setTop(header);
+              setCenter(grid);
+            });
+    setTop(null);
+    setCenter(storeManagement);
   }
 
   private void checkConnection() {
@@ -353,19 +399,31 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   }
 
   private void showModule(PosModule module, String username) {
+    if (module == PosModule.SALES_ORDERS
+        && (gateway instanceof DevGateway || gateway instanceof PreviewGateway || token != null)) {
+      salesBuilder = new ItemWorkbench(gateway, executor, token, true);
+      if (gateway instanceof DevGateway)
+        salesBuilder.onAddCategory(
+            () -> {
+              salesBuilder.close();
+              salesBuilder = null;
+              showModule(PosModule.CATALOGUE, "Development actor");
+              catalogue.addFirstCategory();
+            });
+      var home = new Button("Home");
+      home.setId("home-lock");
+      home.setOnAction(
+          e -> {
+            if (gateway instanceof PreviewGateway || salesBuilder.confirmClose()) lock("");
+          });
+      setTop(new HBox(12, new Label("Sales & Orders"), home));
+      setCenter(salesBuilder);
+      return;
+    }
     if (module == PosModule.CUSTOMERS) {
-      try {
-        var page = za.co.onlinepos.desktop.customers.CustomersPage.load();
-        var back = new Button("Home / Lock");
-        back.setId("home-lock");
-        back.setOnAction(event -> lock(""));
-        var bar = new javafx.scene.layout.HBox(16, back, new Label("Staff: " + username));
-        bar.setPadding(new Insets(12, 24, 12, 24));
-        setTop(bar);
-        setCenter(page);
-      } catch (java.io.IOException failure) {
-        lock("Unable to open customer profiles.");
-      }
+      customersPanel = new CustomersPanel(gateway, executor, token, () -> lock(""), this::activity);
+      setTop(null);
+      setCenter(customersPanel);
       return;
     }
     if (module == PosModule.CATALOGUE) {
@@ -389,13 +447,21 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
     var lock = new Button("Home / Lock");
     lock.setId("home-lock");
     lock.setOnAction(event -> lock(""));
+    var startDraft = new Button("Start draft ordering");
+    startDraft.setId("sales-start-draft");
+    startDraft.setOnAction(e -> prompt(PosModule.SALES_ORDERS));
+    startDraft.setVisible(module == PosModule.SALES_ORDERS);
+    startDraft.setManaged(startDraft.isVisible());
     var content =
         new VBox(
             24,
             heading,
             new Label(username == null ? "Sales / Orders" : "Staff: " + username),
             new Label(
-                "This module is still being built. Operational functions are not yet available."),
+                module == PosModule.SALES_ORDERS
+                    ? "Build and save draft orders. Checkout, payments and receipts are not yet available."
+                    : "This module is still being built. Operational functions are not yet available."),
+            startDraft,
             lock);
     content.setAlignment(Pos.CENTER);
     content.setPadding(new Insets(24));
@@ -457,6 +523,22 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   }
 
   private void lock(String message) {
+    if (storeManagement != null) {
+      storeManagement.close();
+      storeManagement = null;
+    }
+    if (salesBuilder != null) {
+      salesBuilder.close();
+      salesBuilder = null;
+    }
+    if (dataManager != null) {
+      dataManager.close();
+      dataManager = null;
+    }
+    if (customersPanel != null) {
+      customersPanel.close();
+      customersPanel = null;
+    }
     if (catalogue != null) {
       catalogue.close();
       catalogue = null;
@@ -475,6 +557,15 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
     notice.setText(message);
     if (previous != null) revoke(previous);
     grid.getChildren().getFirst().requestFocus();
+  }
+
+  boolean canCloseDevelopment() {
+    return (storeManagement == null || storeManagement.confirmClose())
+        && (salesBuilder == null || salesBuilder.confirmClose())
+        && (dataManager == null || dataManager.discard())
+        && (catalogue == null || catalogue.confirmClose())
+        && (administration == null || administration.confirmClose())
+        && (customersPanel == null || customersPanel.confirmClose());
   }
 
   @Override

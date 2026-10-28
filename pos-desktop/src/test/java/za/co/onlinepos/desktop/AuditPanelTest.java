@@ -180,6 +180,25 @@ class AuditPanelTest {
     assertEquals("", fx(cleared::getText));
   }
 
+  private static void snapshot(AuditPanel panel, String name) throws Exception {
+    fx(
+        () -> {
+          panel.applyCss();
+          panel.layout();
+          var image = panel.snapshot(new javafx.scene.SnapshotParameters(), null);
+          var out =
+              new java.awt.image.BufferedImage(
+                  (int) image.getWidth(),
+                  (int) image.getHeight(),
+                  java.awt.image.BufferedImage.TYPE_INT_ARGB);
+          for (int y = 0; y < image.getHeight(); y++)
+            for (int x = 0; x < image.getWidth(); x++)
+              out.setRGB(x, y, image.getPixelReader().getArgb(x, y));
+          javax.imageio.ImageIO.write(out, "png", Path.of("target", name + ".png").toFile());
+          return null;
+        });
+  }
+
   @Test
   void settingsStagingOwnerPinCancelSaveAndMandatoryLocks() throws Exception {
     try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -190,6 +209,9 @@ class AuditPanelTest {
               () -> {
                 var s = new Stage();
                 s.setScene(new Scene(panel, 1000, 750));
+                s.getScene()
+                    .getStylesheets()
+                    .add(AuditPanel.class.getResource("setup.css").toExternalForm());
                 s.show();
                 return s;
               });
@@ -202,6 +224,7 @@ class AuditPanelTest {
               assertFalse(((Button) panel.lookup("#audit-settings-save")).isDisabled());
               return null;
             });
+        snapshot(panel, "audit-tracking-settings");
         assertEquals(0, gateway.saves);
         approve(panel, "", true);
         assertEquals(0, gateway.saves);
@@ -262,11 +285,15 @@ class AuditPanelTest {
               () -> {
                 var s = new Stage();
                 s.setScene(new Scene(panel, 1000, 700));
+                s.getScene()
+                    .getStylesheets()
+                    .add(AuditPanel.class.getResource("setup.css").toExternalForm());
                 s.show();
                 return s;
               });
       try {
         await(() -> panel.lookup("#admin-audit-table") != null);
+        snapshot(panel, "audit-history");
         fx(
             () -> {
               ((Button) panel.lookup("#audit-next")).fire();

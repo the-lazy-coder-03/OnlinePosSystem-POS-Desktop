@@ -70,13 +70,17 @@ public final class StaffAuthenticationFilter extends OncePerRequestFilter {
     if ((List.of("POST", "PUT", "PATCH").contains(request.getMethod())
             && request.getContentLengthLong() < 0)
         || request.getContentLengthLong()
-            > (path.matches("/api/local/branches/[12]/catalogue/bootstrap") ? 16777216 : 65536)) {
+            > (path.matches("/api/local/branches/[1-9][0-9]*/catalogue/bootstrap")
+                ? 16777216
+                : path.startsWith("/api/local/catalogue/items/") ? 1048576 : 65536)) {
       response.sendError(413);
       return;
     }
     if ((path.startsWith("/api/local/modules/") && !path.equals("/api/local/modules/enter"))
         || path.startsWith("/api/local/admin/")
-        || path.startsWith("/api/local/catalogue/")) {
+        || path.startsWith("/api/local/catalogue/")
+        || path.equals("/api/local/customers")
+        || path.startsWith("/api/local/customers/")) {
       String header = request.getHeader("Authorization");
       try {
         var session =

@@ -235,6 +235,27 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
     return authenticatedRequest(invitation, secrets, path, method, body, token);
   }
 
+  public byte[] customerRequest(
+      Pairing.Invitation invitation,
+      SecretStore secrets,
+      String path,
+      String method,
+      byte[] body,
+      String token)
+      throws Exception {
+    var uri = URI.create(path);
+    if (uri.isAbsolute()
+        || uri.getRawAuthority() != null
+        || uri.getRawFragment() != null
+        || path.length() > 4096
+        || !uri.getRawPath()
+            .matches(
+                "/api/local/customers(/(context|lookup|sync|conflicts|[a-f0-9-]{36})(/(history|ban|archive|[a-f0-9-]{36}))?)?")
+        || !java.util.Set.of("GET", "PUT").contains(method))
+      throw new IllegalArgumentException("Unsupported customer endpoint");
+    return authenticatedRequest(invitation, secrets, path, method, body, token);
+  }
+
   public byte[] catalogueRequest(
       Pairing.Invitation invitation,
       SecretStore secrets,
@@ -244,7 +265,12 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
       String token)
       throws Exception {
     if (!(path.equals("/api/local/catalogue/state") && method.equals("GET")
-        || path.equals("/api/local/catalogue/records") && method.equals("PUT")))
+        || path.equals("/api/local/catalogue/records") && method.equals("PUT")
+        || path.equals("/api/local/catalogue/items") && method.equals("GET")
+        || path.equals("/api/local/catalogue/items/rules") && method.equals("PUT")
+        || java.util.Set.of("/api/local/catalogue/items/quote", "/api/local/catalogue/items/drafts")
+                .contains(path)
+            && method.equals("POST")))
       throw new IllegalArgumentException("Unsupported catalogue endpoint");
     return authenticatedRequest(invitation, secrets, path, method, body, token);
   }

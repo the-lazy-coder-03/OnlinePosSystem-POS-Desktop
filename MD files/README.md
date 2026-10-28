@@ -19,7 +19,7 @@ Open JavaFX, select the branch and role, enter an installation-administrator pas
 12 characters and authorize UAC. Initial dependency installation requires internet.
 
 For Slave setup, generate an invitation on the Master using the protected management instructions in
-[Windows operations](../docs/development/stage2-windows.md). Paste its JSON into JavaFX. Optional manual
+[Windows operations](stage2-windows.md). Paste its JSON into JavaFX. Optional manual
 HTTPS hostname/IP fallback retains the invitation's certificate and branch trust checks.
 
 **This release cannot accept sales.** Local staff authentication, database foundations and protected catalogue import are implemented.
@@ -27,10 +27,10 @@ Emergency queues, printing, cloud sync and standby replication remain later stag
 automatic promotion is disabled.
 
 See [Stage 2 evidence](../docs/stages/02-windows-setup.md), [CDI boundaries](../docs/architecture/stage2-cdi.md),
-[Windows operations and rollback](../docs/development/stage2-windows.md), and [roadmap](../docs/roadmap.md).
+[Windows operations and rollback](stage2-windows.md), and [roadmap](../docs/roadmap.md).
 
 
-Stage 4: [catalogue import](../docs/development/stage4-import.md) and [evidence/gates](../docs/stages/04-catalogue-bootstrap.md).
+Stage 4: [catalogue import](stage4-import.md) and [evidence/gates](../docs/stages/04-catalogue-bootstrap.md).
 Source-seed parity tests do not establish current production menu parity or authorize live cutover.
 
 Both branch imports were also tested against an isolated copy of the user-provided local catalogue.

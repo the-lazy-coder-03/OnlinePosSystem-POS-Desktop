@@ -22,7 +22,10 @@ public class LocalDatabase {
   HikariDataSource localDataSource(Environment env) {
     HikariConfig config = new HikariConfig();
     config.setJdbcUrl(env.getRequiredProperty("pos.database.url"));
-    config.setUsername("pos_runtime");
+    config.setUsername(
+        env.matchesProfiles("installed")
+            ? "pos_runtime"
+            : env.getProperty("pos.database.username", "pos_runtime"));
     config.setPassword(env.getRequiredProperty("pos.database.password"));
     config.setMaximumPoolSize(8);
     config.setConnectionTimeout(5000);

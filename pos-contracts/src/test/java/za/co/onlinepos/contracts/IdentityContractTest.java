@@ -32,7 +32,8 @@ class IdentityContractTest {
 
   @Test
   void invalidBranchNilIdentityAndNegativeRevisionAreRejected() {
-    assertThrows(IllegalArgumentException.class, () -> Branch.fromId(3));
+    assertEquals(3, Branch.fromId(3).id());
+    assertThrows(IllegalArgumentException.class, () -> Branch.fromId(0));
     assertThrows(IllegalArgumentException.class, () -> new OrderIdentity(new UUID(0, 0), 1));
     assertThrows(
         IllegalArgumentException.class,

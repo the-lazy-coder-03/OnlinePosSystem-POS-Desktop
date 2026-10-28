@@ -17,6 +17,7 @@ import javafx.scene.control.TableView;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
+import za.co.onlinepos.contracts.CustomerProfile;
 
 public class CustomersController {
   @FXML private TextField search;

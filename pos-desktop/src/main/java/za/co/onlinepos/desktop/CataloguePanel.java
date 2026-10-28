@@ -129,6 +129,8 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
   private long generation;
   private CatalogueManagement.Edit pending;
   private Dialog<?> dialog;
+  private ItemWorkbench itemWorkbench;
+  private boolean firstCategory;
 
   CataloguePanel(
       ModuleGateway gateway,
@@ -149,7 +151,10 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     title.getStyleClass().add("home-title");
     var home = new Button("Home / Lock");
     home.setId("home-lock");
-    home.setOnAction(e -> lock.accept(""));
+    home.setOnAction(
+        e -> {
+          if (!(gateway instanceof DevGateway) || confirmClose()) lock.accept("");
+        });
     var spacer = new Region();
     HBox.setHgrow(spacer, Priority.ALWAYS);
     var header =
@@ -183,6 +188,18 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
       sidebar.getChildren().add(tab);
       sections.put(section, tab);
     }
+    var customize = new Button("Item setup & combos");
+    customize.setId("catalogue-customization");
+    customize.setMaxWidth(Double.MAX_VALUE);
+    customize.setOnAction(
+        e -> {
+          if (discard()) {
+            if (itemWorkbench != null) itemWorkbench.close();
+            itemWorkbench = new ItemWorkbench(gateway, executor, token);
+            body.setCenter(itemWorkbench);
+          }
+        });
+    sidebar.getChildren().add(customize);
     setLeft(sidebar);
     body.setPadding(new Insets(18));
     setCenter(body);
@@ -290,6 +307,10 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
           state = result;
           pending = null;
           open(current);
+          if (firstCategory) {
+            firstCategory = false;
+            addFirstCategory();
+          }
           if (!state.path("warnings").isEmpty())
             feedback.setText(
                 state.path("warnings").get(0).asText()
@@ -297,6 +318,15 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
                     + state.path("warnings").size()
                     + " review notices)");
         });
+  }
+
+  void addFirstCategory() {
+    if (state == null) {
+      firstCategory = true;
+      return;
+    }
+    open(KINDS.stream().filter(k -> k.table().equals("menu_category")).findFirst().orElseThrow());
+    editForm(null);
   }
 
   private void selectSidebar() {
@@ -909,6 +939,19 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
   }
 
   private boolean discard() {
+    if (itemWorkbench != null) {
+      if (itemWorkbench.dirty()) {
+        var confirm =
+            new javafx.scene.control.Alert(
+                javafx.scene.control.Alert.AlertType.CONFIRMATION,
+                "Discard staged item settings or an unconfirmed draft?",
+                ButtonType.YES,
+                ButtonType.CANCEL);
+        if (confirm.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.YES) return false;
+      }
+      itemWorkbench.close();
+      itemWorkbench = null;
+    }
     if (!dirty) return true;
     boolean result = confirm("Unsaved changes", "Discard the unsaved changes and continue?");
     if (result) {
@@ -933,8 +976,13 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
         && result.filter(b -> b.getButtonData() == ButtonBar.ButtonData.OK_DONE).isPresent();
   }
 
+  boolean confirmClose() {
+    return !busy && discard();
+  }
+
   @Override
   public void close() {
+    if (itemWorkbench != null) itemWorkbench.close();
     closed = true;
     ++generation;
     if (dialog != null) dialog.close();

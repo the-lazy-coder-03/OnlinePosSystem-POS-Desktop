@@ -53,6 +53,14 @@ class ModuleHomeTest {
   }
 
   static class Gateway extends ModuleGateway {
+    final PreviewCustomers customers = new PreviewCustomers();
+
+    @Override
+    public JsonNode customers(String path, String method, Object body, String token)
+        throws Exception {
+      return customers.request(path, method, body);
+    }
+
     final CountDownLatch revoked = new CountDownLatch(1);
     final java.util.concurrent.atomic.AtomicInteger refusal =
         new java.util.concurrent.atomic.AtomicInteger(401);
@@ -201,7 +209,13 @@ class ModuleHomeTest {
               ((Button) pane.lookupButton(open)).fire();
               return null;
             });
-        await(() -> home.lookup("#customers") != null);
+        await(
+            () ->
+                home.lookup("#customers") != null
+                    && ((javafx.scene.control.TableView<?>) home.lookup("#customers"))
+                            .getItems()
+                            .size()
+                        == 3);
         fx(
             () -> {
               var customers = (javafx.scene.control.TableView<?>) home.lookup("#customers");
@@ -254,16 +268,21 @@ class ModuleHomeTest {
                 assertNotNull(home.lookup("#home-lock"));
                 home.applyCss();
                 home.layout();
-                if (module == PosModule.CUSTOMERS) {
-                  assertNotNull(home.lookup("#customers"));
-                  assertNotNull(home.lookup("#search"));
-                }
+
                 assertTrue(
                     Window.getWindows().stream()
                         .filter(Window::isShowing)
                         .noneMatch(w -> w.getScene().getRoot() instanceof DialogPane));
                 return null;
               });
+          if (module == PosModule.CUSTOMERS)
+            await(
+                () ->
+                    home.lookup("#customers") != null
+                        && ((javafx.scene.control.TableView<?>) home.lookup("#customers"))
+                                .getItems()
+                                .size()
+                            == 3);
           if (module == PosModule.CATALOGUE) await(() -> home.lookup("#catalogue-list") != null);
           fx(
               () -> {

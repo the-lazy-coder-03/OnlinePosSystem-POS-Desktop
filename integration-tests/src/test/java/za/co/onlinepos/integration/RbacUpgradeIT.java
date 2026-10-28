@@ -129,6 +129,30 @@ class RbacUpgradeIT {
         true,
         jdbc.queryForObject(
             "SELECT password_login_enabled FROM pos.staff WHERE staff_id=?", Boolean.class, id));
+    assertEquals(
+        passwordHash,
+        jdbc.queryForObject(
+            "SELECT verifier FROM pos.staff_auth_method WHERE staff_id=? AND method='PASSWORD'",
+            String.class,
+            id));
+    assertEquals(
+        pinHash,
+        jdbc.queryForObject(
+            "SELECT verifier FROM pos.staff_auth_method WHERE staff_id=? AND method='PIN'",
+            String.class,
+            id));
+    assertEquals(
+        lookup,
+        jdbc.queryForObject(
+            "SELECT lookup FROM pos.staff_auth_method WHERE staff_id=? AND method='PIN'",
+            String.class,
+            id));
+    assertEquals(
+        2,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM pos.staff_auth_method WHERE staff_id=? AND account_type='LOCAL'",
+            Integer.class,
+            id));
     assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM pos.store_owner", Integer.class));
     assertEquals(
         1,
@@ -190,5 +214,76 @@ class RbacUpgradeIT {
         jdbc.queryForObject(
             "SELECT count(*) FROM pos.role_permission WHERE permission='catalogue.manage'",
             Integer.class));
+  }
+
+  @Test
+  void legacyCustomersAndCancelledDraftReferencesSurviveV9WithCollisionsFlagged() {
+    var owner =
+        DatabaseTool.source(
+            System.getenv("POS_TEST_DATABASE_URL")
+                .replace("/pos_stage3_test", "/pos_stage3_restore"),
+            "pos_owner",
+            System.getenv("POS_TEST_OWNER_PASSWORD"));
+    var jdbc = new JdbcTemplate(owner);
+    jdbc.execute("DROP SCHEMA IF EXISTS pos CASCADE");
+    jdbc.execute("DROP TABLE IF EXISTS public.flyway_schema_history");
+    Flyway.configure()
+        .dataSource(owner)
+        .locations("classpath:db/migration")
+        .target("8")
+        .load()
+        .migrate();
+    jdbc.update(
+        "INSERT INTO pos.store_identity VALUES (true,1,?,?)", UUID.randomUUID(), UUID.randomUUID());
+    jdbc.update("INSERT INTO pos.stream_head(branch_id) VALUES (1)");
+    UUID customer = UUID.randomUUID(), duplicate = UUID.randomUUID(), order = UUID.randomUUID();
+    jdbc.update(
+        "INSERT INTO pos.local_customer(customer_id,branch_id,display_name,phone,address,revision) VALUES (?,1,'Legacy','082 123 4567','Preserved address',7),(?,1,'Duplicate','+27821234567','Other address',2)",
+        customer,
+        duplicate);
+    jdbc.update(
+        "INSERT INTO pos.order_draft(sync_id,branch_id,customer_id,state,provisional_reference,total) VALUES (?,1,?,'CANCELLED','legacy-reference',0)",
+        order,
+        customer);
+    Flyway.configure().dataSource(owner).locations("classpath:db/migration").load().migrate();
+    assertEquals(
+        customer,
+        jdbc.queryForObject(
+            "SELECT customer_id FROM pos.order_draft WHERE sync_id=?", UUID.class, order));
+    assertEquals(
+        "CANCELLED",
+        jdbc.queryForObject(
+            "SELECT state FROM pos.order_draft WHERE sync_id=?", String.class, order));
+    assertEquals(
+        7L,
+        jdbc.queryForObject(
+            "SELECT revision FROM pos.local_customer WHERE customer_id=?", Long.class, customer));
+    assertEquals(
+        "Preserved address",
+        jdbc.queryForObject(
+            "SELECT profile->>'formatted_address' FROM pos.local_customer WHERE customer_id=?",
+            String.class,
+            customer));
+    assertEquals(
+        "+27821234567",
+        jdbc.queryForObject(
+            "SELECT profile->>'phone1' FROM pos.local_customer WHERE customer_id=?",
+            String.class,
+            customer));
+    assertEquals(
+        2,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM pos.customer_conflict WHERE reason='LEGACY_CONTACT_COLLISION'",
+            Integer.class));
+    assertEquals(
+        "{}",
+        jdbc.queryForObject(
+            "SELECT field_times::text FROM pos.local_customer WHERE customer_id=?",
+            String.class,
+            customer));
+    assertEquals(
+        0,
+        jdbc.queryForObject(
+            "SELECT count(*) FROM pos.local_customer WHERE updated_at IS NOT NULL", Integer.class));
   }
 }

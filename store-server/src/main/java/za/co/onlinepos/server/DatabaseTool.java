@@ -226,7 +226,11 @@ public final class DatabaseTool {
                 Integer.parseInt(required("POS_BRANCH_ID")),
                 UUID.fromString(required("POS_CLUSTER_ID")),
                 UUID.fromString(required("POS_INSTALLATION_ID")));
-        owner = source(required("POS_DB_URL"), "pos_owner", required("POS_DB_OWNER_PASSWORD"));
+        owner =
+            source(
+                required("POS_DB_URL"),
+                System.getenv().getOrDefault("POS_DB_OWNER_USERNAME", "pos_owner"),
+                required("POS_DB_OWNER_PASSWORD"));
       }
       switch (operation) {
         case "migrate" -> migrate(owner, identity);

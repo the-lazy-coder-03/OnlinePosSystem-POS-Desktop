@@ -44,6 +44,7 @@ public class AdministrationService {
     var result = new TreeSet<String>();
     for (var module : PosModule.values()) result.add(module.permission());
     result.addAll(Set.of("staff.manage", "rbac.manage", "audit.view", "catalogue.manage"));
+    result.addAll(za.co.onlinepos.contracts.Customers.PERMISSIONS);
     return result;
   }
 

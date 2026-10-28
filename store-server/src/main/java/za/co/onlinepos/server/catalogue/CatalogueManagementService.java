@@ -77,7 +77,7 @@ public class CatalogueManagementService {
   private final LocalDatabase.Identity identity;
   private final TransactionTemplate transactions;
   private final CatalogueImport importer;
-  private final SnapshotFormat format = new SnapshotFormat();
+  private final SnapshotFormat format = new SnapshotFormat(true);
 
   public CatalogueManagementService(
       JdbcTemplate jdbc,
@@ -233,6 +233,7 @@ public class CatalogueManagementService {
               continue;
             }
             var row = (ObjectNode) journal.tree(change.values());
+            if (row.path("archived").asBoolean(false)) row.put("active", false);
             if (row.hasNonNull("branch_id") && row.path("branch_id").asInt() != identity.branchId())
               throw new LocalFailure(403, "Foreign branch record refused");
             if (spec.get("columns").has("branch_id")) row.put("branch_id", identity.branchId());
@@ -399,7 +400,8 @@ public class CatalogueManagementService {
                 .forEach(
                     ref -> {
                       var value = r.get(ref.getKey());
-                      if (value.isNull()
+                      if (value == null
+                          || value.isNull()
                           || previous != null && value.equals(previous.get(ref.getKey()))) return;
                       var target = ref.getValue().get(0).asText();
                       var column = ref.getValue().get(1).asText();
@@ -560,7 +562,7 @@ public class CatalogueManagementService {
           .forEach(
               ref -> {
                 var value = entry.getValue().get(ref.getKey());
-                if (!value.isNull()) {
+                if (value != null && !value.isNull()) {
                   String target = ref.getValue().get(0).asText(),
                       column = ref.getValue().get(1).asText();
                   nodes(tables, target).stream()

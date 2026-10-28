@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
+import za.co.onlinepos.contracts.CustomerProfile;
 
 class AccountServiceTest {
   private final AccountService service = new AccountService();

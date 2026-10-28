@@ -9,6 +9,17 @@ public final class Auditing {
   private Auditing() {}
 
   public enum EventType {
+    LOCAL_STORE_CREATED("System", false),
+    LOCAL_STORE_CHANGED("System", false),
+    LOCAL_STORE_ADOPTED("System", false),
+    CUSTOMER_CREATED("Customers", true),
+    CUSTOMER_UPDATED("Customers", true),
+    CUSTOMER_ARCHIVED("Customers", true),
+    CUSTOMER_RESTORED("Customers", true),
+    CUSTOMER_BANNED("Security", false),
+    CUSTOMER_UNBANNED("Security", false),
+    CUSTOMER_CONFLICT_RESOLVED("Security", false),
+    CUSTOMER_SYNC_APPLIED("Customers", false),
     DRAFT_CREATED("Orders", true),
     DRAFT_CANCELLED("Orders", true),
     PRICE_CHANGED("Catalogue", true),

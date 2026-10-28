@@ -1,6 +1,6 @@
 # OnlinePosSystem: Staged Codex Implementation Plan
 
-**Date:** 24 October 2026  
+**Date:** 24 October 2026
 **Purpose:** Guide Codex through building a new Windows JavaFX point-of-sale system and its local services in controlled, independently tested stages, while preserving the existing OnlinePosSystem cloud website.
 
 ## 1. Decisions already made
@@ -155,7 +155,7 @@ persistent retry limits and separate Windows elevation. This credential is not a
 The current implementation/contract details and validation evidence are maintained in
 [Stage 2 report](../docs/stages/02-windows-setup.md),
 [CDI architecture](../docs/architecture/stage2-cdi.md) and
-[Windows operations](../docs/development/stage2-windows.md).
+[Windows operations](stage2-windows.md).
 
 **Codex tasks:**
 - Keep JavaFX unelevated; elevate only a validated installation helper. Support resumable Master/Slave setup, protected installation-administrator authentication and deliberate role changes.

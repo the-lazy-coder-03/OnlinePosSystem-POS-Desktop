@@ -45,11 +45,8 @@ Master setup retains its installation-administrator password. Existing `Manage.p
 
 ## Recovery and rollback
 Interrupted provisioning leaves CONFIGURING state and a redacted provisioning.log. Re-run the same setup
-with the same branch/role and administrator credential; installed identities and database directory must
-be preserved. Never delete populated data to repair installation. Certificate bundles commit their CA key last, so interrupted first creation can be retried. If a pairing
-response is lost before the terminal saves its certificate, revoke that terminal UUID on the Master,
-use protected maintenance and retry the same installation. A revoked registration may be replaced only
-through protected maintenance; open LAN enrolment cannot clear revocation. Do not disable TLS or create a second Master.
+with the same branch/role (and the administrator credential for Master repair); installed identities and database directory must
+be preserved. Never delete populated data to repair installation. Certificate bundles commit their CA key last, so interrupted first creation can be retried. If a new LAN enrolment response is lost before the terminal saves its certificate, retry the same setup: its stored UUID, key and pin recover the existing registration. Do not revoke it merely because an acknowledgement was lost. Revoked registrations require protected maintenance; open LAN enrolment cannot clear revocation. Do not disable TLS or create a second Master.
 
 Uninstall stops/removes app-owned services and firewall rules before removing binaries; failure to stop
 services cancels uninstall. ProgramData is retained, including database, keys and unresolved future queues.

@@ -13,7 +13,7 @@ class AuditingTest {
   @Test
   void onlyImplementedNonessentialActivitiesAreOptionalAndSecretsAreNotPrintable() {
     assertEquals(
-        6,
+        10,
         java.util.Arrays.stream(Auditing.EventType.values())
             .filter(Auditing.EventType::optional)
             .count());

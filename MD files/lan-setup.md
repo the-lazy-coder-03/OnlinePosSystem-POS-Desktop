@@ -1,6 +1,6 @@
 # LAN setup and reconnection
 
-Slave setup asks for branch, terminal name, Slave role, and the Master's private IPv4 address. It uses HTTPS port 8443 without exposing API addresses, JSON invitations or certificates in the UI. The Windows helper still requires UAC to protect machine configuration, but Slave enrolment asks for no installation password, joining code or Master approval. Master installation retains its existing administrator credential.
+Slave setup asks for branch, terminal name, Slave role, and the Master's private IPv4 address. It uses HTTPS port 8443 without exposing API addresses, JSON invitations or certificates in the UI. The Windows helper still requires UAC to protect machine configuration, but Slave enrolment asks for no installation password, joining code or Master approval. Master installation retains its existing administrator credential. Its setup screen and home grid display the Master LAN IP for staff to enter on Slaves.
 
 ## Trust and ownership
 
@@ -34,6 +34,8 @@ Administration → Terminals lists registered Slaves, observed IPv4 addresses, l
 Bootstrap/enrolment responses are not cached. Requests are size-limited and rate-limited per source; pending challenges are bounded. Private keys, invitation tokens and staff credentials are not returned. Existing business migrations are unchanged. Installation/request records accept legacy shapes; missing registry version/challenge fields are upgraded on the next write while preserving certificates and revocations.
 
 ## Verification and rollback
+
+Server leaf certificates use a distinct subject from the CA so PKCS12 preserves the complete chain. A real Spring Boot/Tomcat regression test verifies this in addition to the lightweight HTTPS fixtures.
 
 Automated tests cover first-use HTTPS with normal IP hostname checks, wrong branch, changed CA, lost-response retry, challenge replay/expiry/tampering, key conflicts, concurrent redemption, persisted revocation, old registry loading, actual socket interface boundaries, permission checks, JavaFX setup-to-grid navigation and PIN-free Sales. The Windows package smoke client exercises enrolment against the installed service's actual LAN address, interrupted local credential storage, restart and revocation. Existing database, catalogue, audit and architecture checks remain required.
 

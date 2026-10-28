@@ -101,7 +101,7 @@ class LocalPostgresIT {
   @BeforeEach
   void fixture() {
     truncateAuditFixtures(
-        "TRUNCATE pos.catalogue_bootstrap,pos.staff,pos.staff_session,pos.catalog_item,pos.branch_price,pos.local_customer,pos.order_draft,pos.order_line,pos.order_line_extra,pos.payment_metadata,pos.command_receipt,pos.audit_record,pos.outbox_event,pos.inbox_receipt,pos.terminal_printer CASCADE");
+        "TRUNCATE pos.customer_conflict,pos.catalogue_bootstrap,pos.staff,pos.staff_session,pos.catalog_item,pos.branch_price,pos.local_customer,pos.order_draft,pos.order_line,pos.order_line_extra,pos.payment_metadata,pos.command_receipt,pos.audit_record,pos.outbox_event,pos.inbox_receipt,pos.terminal_printer CASCADE");
     ADMIN.execute("TRUNCATE pos.pin_throttle,pos.rbac_role CASCADE");
     ADMIN.update("INSERT INTO pos.rbac_role VALUES (1,'MANAGER'),(1,'CASHIER')");
     for (var module : za.co.onlinepos.contracts.PosModule.values())
@@ -109,6 +109,8 @@ class LocalPostgresIT {
     ADMIN.update(
         "INSERT INTO pos.role_permission VALUES (1,'MANAGER','rbac.manage'),(1,'MANAGER','staff.manage'),(1,'CASHIER','module.sales_orders')");
     ADMIN.update("UPDATE pos.stream_head SET position=0");
+    ADMIN.update(
+        "UPDATE pos.store_identity SET store_name=NULL,business_name=NULL,store_code=NULL,active=true,archived=false,revision=0");
     ADMIN.update("UPDATE pos.audit_tracking_settings SET enabled=true");
     ADMIN.update("UPDATE pos.audit_policy SET revision=0,updated_at=NULL,updated_by_owner_id=NULL");
     ADMIN.update("DELETE FROM pos.audit_approval");
@@ -123,6 +125,1053 @@ class LocalPostgresIT {
     token =
         (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
     manager = staff.authenticate(token, TERMINAL);
+  }
+
+  @Test
+  void localAuthenticationMethodsPreserveVerifiersBindIdentityAndRevokeSessions() {
+    provisionPin("manager", "012345");
+    UUID id =
+        runtime.queryForObject(
+            "SELECT staff_id FROM pos.staff WHERE username='manager'", UUID.class);
+    assertEquals(
+        runtime.queryForObject(
+            "SELECT password_hash FROM pos.staff WHERE staff_id=?", String.class, id),
+        runtime.queryForObject(
+            "SELECT verifier FROM pos.staff_auth_method WHERE staff_id=? AND method='PASSWORD'",
+            String.class,
+            id));
+    assertEquals(
+        runtime.queryForObject("SELECT hash FROM pos.staff_pin WHERE staff_id=?", String.class, id),
+        runtime.queryForObject(
+            "SELECT verifier FROM pos.staff_auth_method WHERE staff_id=? AND method='PIN'",
+            String.class,
+            id));
+    assertEquals(
+        401,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    modules.enter(
+                        new za.co.onlinepos.server.local.ModuleAccess.Entry(
+                            "012345",
+                            za.co.onlinepos.contracts.PosModule.CUSTOMERS,
+                            UUID.randomUUID()),
+                        TERMINAL))
+            .status());
+    var entered =
+        modules.enter(
+            new za.co.onlinepos.server.local.ModuleAccess.Entry(
+                "012345", za.co.onlinepos.contracts.PosModule.CUSTOMERS, id),
+            TERMINAL);
+    String moduleToken = (String) entered.get("token");
+    assertEquals(id, modules.authenticate(moduleToken, TERMINAL, false).staffId());
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.update(
+                "UPDATE pos.staff_auth_method SET verifier='bypass' WHERE staff_id=?", id));
+    ADMIN.update(
+        "UPDATE pos.staff SET credential_version=credential_version+1 WHERE staff_id=?", id);
+    assertEquals(
+        401,
+        assertThrows(LocalFailure.class, () -> modules.authenticate(moduleToken, TERMINAL, false))
+            .status());
+    assertEquals(
+        runtime.queryForObject(
+            "SELECT credential_version FROM pos.staff WHERE staff_id=?", Long.class, id),
+        runtime.queryForObject(
+            "SELECT credential_version FROM pos.staff_auth_method WHERE staff_id=? AND method='PIN'",
+            Long.class,
+            id));
+    ADMIN.update("UPDATE pos.staff SET account_type='CLOUD' WHERE staff_id=?", id);
+    assertEquals(
+        401,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    modules.enter(
+                        new za.co.onlinepos.server.local.ModuleAccess.Entry(
+                            "012345", za.co.onlinepos.contracts.PosModule.CUSTOMERS, id),
+                        TERMINAL))
+            .status());
+    assertEquals(
+        401,
+        assertThrows(
+                LocalFailure.class,
+                () -> staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL))
+            .status());
+    ADMIN.update("UPDATE pos.staff SET account_type='LOCAL' WHERE staff_id=?", id);
+    assertNotNull(
+        modules
+            .enter(
+                new za.co.onlinepos.server.local.ModuleAccess.Entry(
+                    "012345", za.co.onlinepos.contracts.PosModule.CUSTOMERS, id),
+                TERMINAL)
+            .get("token"));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            ADMIN.update(
+                "INSERT INTO pos.staff_auth_method(branch_id,staff_id,account_type,method,verifier,credential_version,enabled) VALUES(1,?,'LOCAL','RFID_NFC','card-uid',1,true)",
+                id));
+  }
+
+  @Autowired za.co.onlinepos.server.local.StoreProfileService storeProfiles;
+
+  @Test
+  void ownerStoreProfileIsRevisionedIdempotentAndScoped() {
+    String access = adminToken(false);
+    assertEquals(
+        403,
+        assertThrows(LocalFailure.class, () -> storeProfiles.state(access, TERMINAL)).status());
+    String owner = adminToken(true);
+    JsonNode before = storeProfiles.state(owner, TERMINAL);
+    var request = json.createObjectNode();
+    request.put("commandId", UUID.randomUUID().toString());
+    request.put("expectedRevision", before.path("store").path("revision").asLong());
+    request.put("businessName", "Independent business");
+    request.put("name", "Third avenue");
+    request.put("code", "THIRD");
+    request.put("active", true);
+    JsonNode saved = storeProfiles.save(owner, TERMINAL, request);
+    assertEquals("Third avenue", saved.path("store").path("name").asText());
+    assertEquals(before.path("store").path("store_uuid"), saved.path("store").path("store_uuid"));
+    assertEquals(before.path("store").path("branch_id"), saved.path("store").path("branch_id"));
+    assertEquals(saved, storeProfiles.save(owner, TERMINAL, request));
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='LOCAL_STORE_CHANGED'",
+            Integer.class));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> runtime.update("UPDATE pos.store_identity SET store_name='Bypass'"));
+    var stale = request.deepCopy();
+    stale.put("commandId", UUID.randomUUID().toString());
+    assertThrows(RuntimeException.class, () -> storeProfiles.save(owner, TERMINAL, stale));
+    assertEquals(
+        saved.path("store").path("revision"),
+        storeProfiles.state(owner, TERMINAL).path("store").path("revision"));
+  }
+
+  @Autowired za.co.onlinepos.server.local.CustomerService customers;
+
+  private String customerToken() {
+    provisionPin("manager", "000123");
+    token =
+        (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
+    manager = staff.authenticate(token, TERMINAL);
+    return enter("000123", za.co.onlinepos.contracts.PosModule.CUSTOMERS);
+  }
+
+  private za.co.onlinepos.contracts.Customers.Edit customerEdit(
+      UUID id, long revision, String phone) {
+    return new za.co.onlinepos.contracts.Customers.Edit(
+        UUID.randomUUID(),
+        id,
+        revision,
+        java.util.Map.of(
+            "first_name",
+            "Customer",
+            "phone1",
+            phone,
+            "city",
+            "Cape Town",
+            "country",
+            "ZA",
+            "latitude",
+            "-33.9"));
+  }
+
+  @Test
+  void persistentCustomersEnforceRevisionsRetriesPermissionsAndProtectedMetadata()
+      throws Exception {
+    String access = customerToken();
+    UUID id = UUID.randomUUID();
+    assertEquals(
+        0,
+        ((java.util.List<?>) customers.search(access, TERMINAL, "", false, "").get("items"))
+            .size());
+    var create = customerEdit(id, -1, "0821234567");
+    var saved = customers.save(access, TERMINAL, create);
+    assertEquals("+27821234567", saved.path("profile").path("phone1").asText());
+    assertEquals("Store 1", saved.path("profile").path("preferred_store").asText());
+    assertEquals(saved, customers.save(access, TERMINAL, create));
+    var update =
+        new za.co.onlinepos.contracts.Customers.Edit(
+            UUID.randomUUID(), id, 0, java.util.Map.of("first_name", "Edited"));
+    assertEquals(1, customers.save(access, TERMINAL, update).path("revision").asLong());
+    assertThrows(
+        Exception.class, () -> customers.save(access, TERMINAL, customerEdit(id, 0, "0821234567")));
+    assertEquals(
+        0, runtime.queryForObject("SELECT count(*) FROM pos.customer_conflict", Integer.class));
+    assertEquals(
+        "ZA",
+        journal
+            .tree(customers.detail(access, TERMINAL, id))
+            .path("profile")
+            .path("country")
+            .asText());
+    assertThrows(
+        Exception.class,
+        () ->
+            customers.save(
+                access,
+                TERMINAL,
+                new za.co.onlinepos.contracts.Customers.Edit(
+                    UUID.randomUUID(), id, 1, java.util.Map.of("preferred_store", "Uitzicht"))));
+    assertThrows(
+        Exception.class,
+        () -> runtime.update("UPDATE pos.local_customer SET banned=false WHERE customer_id=?", id));
+    http.perform(get("/api/local/customers").header("Authorization", "Bearer " + token))
+        .andExpect(status().isUnauthorized());
+    http.perform(
+            get("/api/local/customers")
+                .header("Authorization", "Bearer " + access)
+                .header("X-POS-Terminal", TERMINAL))
+        .andExpect(status().isOk());
+    assertEquals(
+        "REMOTE_UNAVAILABLE", customers.lookup(access, TERMINAL, "0831234567").get("status"));
+    assertFalse((boolean) customers.syncStatus(access, TERMINAL).get("enabled"));
+    assertEquals(
+        2, runtime.queryForObject("SELECT count(*) FROM pos.customer_sync_pending", Integer.class));
+    assertFalse(
+        runtime
+            .queryForObject(
+                "SELECT string_agg(details::text,'') FROM pos.audit_record WHERE action LIKE 'CUSTOMER_%'",
+                String.class)
+            .contains("2782"));
+  }
+
+  @Test
+  void customerBansAndArchiveBlockOnlyNewIdentifiedDraftsAndPreserveSnapshots() {
+    String access = customerToken();
+    UUID id = UUID.randomUUID();
+    customers.save(access, TERMINAL, customerEdit(id, -1, "0821234567"));
+    UUID order = UUID.randomUUID();
+    operations.createDraft(
+        manager,
+        new LocalCommands.CreateDraft(
+            UUID.randomUUID(),
+            order,
+            List.of(new LocalCommands.DraftLine(UUID.randomUUID(), PRICE, 0, 1)),
+            id));
+    String snapshot =
+        runtime.queryForObject(
+            "SELECT customer_snapshot::text FROM pos.order_draft WHERE sync_id=?",
+            String.class,
+            order);
+    assertTrue(snapshot.contains("Customer"));
+    customers.status(
+        access,
+        TERMINAL,
+        id,
+        new za.co.onlinepos.contracts.Customers.Status(UUID.randomUUID(), 0, true, "Local review"),
+        true);
+    UUID rejected = UUID.randomUUID();
+    assertThrows(
+        Exception.class,
+        () ->
+            operations.createDraft(
+                manager,
+                new LocalCommands.CreateDraft(
+                    UUID.randomUUID(),
+                    rejected,
+                    List.of(new LocalCommands.DraftLine(UUID.randomUUID(), PRICE, 0, 1)),
+                    id)));
+    assertEquals(
+        0,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.order_draft WHERE sync_id=?", Integer.class, rejected));
+    operations.createDraft(
+        manager,
+        new LocalCommands.CreateDraft(
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            List.of(new LocalCommands.DraftLine(UUID.randomUUID(), PRICE, 0, 1))));
+    customers.status(
+        access,
+        TERMINAL,
+        id,
+        new za.co.onlinepos.contracts.Customers.Status(UUID.randomUUID(), 1, true, ""),
+        false);
+    customers.status(
+        access,
+        TERMINAL,
+        id,
+        new za.co.onlinepos.contracts.Customers.Status(UUID.randomUUID(), 2, false, ""),
+        false);
+    assertEquals(true, customers.detail(access, TERMINAL, id).get("banned"));
+    customers.status(
+        access,
+        TERMINAL,
+        id,
+        new za.co.onlinepos.contracts.Customers.Status(UUID.randomUUID(), 3, false, ""),
+        true);
+    assertEquals(
+        snapshot,
+        runtime.queryForObject(
+            "SELECT customer_snapshot::text FROM pos.order_draft WHERE sync_id=?",
+            String.class,
+            order));
+    operations.cancel(manager, order, new LocalCommands.CancelDraft(UUID.randomUUID(), 0));
+    assertTrue(customers.history(access, TERMINAL, id, 0).toString().contains("CANCELLED"));
+    assertEquals(
+        2,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action IN ('CUSTOMER_BANNED','CUSTOMER_UNBANNED')",
+            Integer.class));
+  }
+
+  @Test
+  void customerContactCollisionCanBeResolvedWithoutReplacingOriginalIdentity() {
+    String access = customerToken();
+    UUID existing = UUID.randomUUID(), proposed = UUID.randomUUID();
+    customers.save(access, TERMINAL, customerEdit(existing, -1, "0821234567"));
+    var failed = customerEdit(proposed, -1, "+27821234567");
+    assertEquals(
+        409,
+        assertThrows(LocalFailure.class, () -> customers.save(access, TERMINAL, failed)).status());
+    assertEquals(
+        409,
+        assertThrows(LocalFailure.class, () -> customers.save(access, TERMINAL, failed)).status());
+    assertEquals(
+        1, runtime.queryForObject("SELECT count(*) FROM pos.customer_conflict", Integer.class));
+    UUID conflict =
+        runtime.queryForObject("SELECT conflict_id FROM pos.customer_conflict", UUID.class);
+    var resolve =
+        new za.co.onlinepos.contracts.Customers.Resolution(
+            UUID.randomUUID(), 0, "LINK", existing, java.util.Map.of());
+    var result = customers.resolve(access, TERMINAL, conflict, resolve);
+    assertEquals(result, customers.resolve(access, TERMINAL, conflict, resolve));
+    assertEquals(existing, customers.detail(access, TERMINAL, proposed).get("id"));
+    assertEquals(
+        1, runtime.queryForObject("SELECT count(*) FROM pos.local_customer", Integer.class));
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='CUSTOMER_CONFLICT_RESOLVED'",
+            Integer.class));
+  }
+
+  @Autowired org.springframework.transaction.support.TransactionTemplate customerTransactions;
+
+  @Test
+  void customerWritesRollbackWithOutboxFailureAndSeparateSessionsSeeOnlyCommittedChanges() {
+    String access = customerToken();
+    UUID id = UUID.randomUUID();
+    ADMIN.execute(
+        "CREATE FUNCTION pos.reject_customer_outbox() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type LIKE 'CUSTOMER_%' THEN RAISE EXCEPTION 'Synthetic failure'; END IF; RETURN NEW; END $$");
+    ADMIN.execute(
+        "CREATE TRIGGER reject_customer_outbox BEFORE INSERT ON pos.outbox_event FOR EACH ROW EXECUTE FUNCTION pos.reject_customer_outbox()");
+    try {
+      assertThrows(
+          Exception.class,
+          () -> customers.save(access, TERMINAL, customerEdit(id, -1, "0821234567")));
+    } finally {
+      ADMIN.execute("DROP TRIGGER reject_customer_outbox ON pos.outbox_event");
+      ADMIN.execute("DROP FUNCTION pos.reject_customer_outbox()");
+    }
+    assertEquals(
+        0, runtime.queryForObject("SELECT count(*) FROM pos.local_customer", Integer.class));
+    assertEquals(
+        0, runtime.queryForObject("SELECT count(*) FROM pos.command_receipt", Integer.class));
+    assertEquals(
+        0,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='CUSTOMER_CREATED'",
+            Integer.class));
+    customers.save(access, TERMINAL, customerEdit(id, -1, "0821234567"));
+    ADMIN.update("DELETE FROM pos.role_permission WHERE permission='customers.ban'");
+    assertEquals(
+        401,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    customers.status(
+                        access,
+                        TERMINAL,
+                        id,
+                        new za.co.onlinepos.contracts.Customers.Status(
+                            UUID.randomUUID(), 0, true, "Review"),
+                        true))
+            .status());
+    assertThrows(
+        Exception.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.write_customer(?,?,?,?,?,?::jsonb,?)",
+                Long.class,
+                CommandJournal.digest(access),
+                TERMINAL,
+                id,
+                0,
+                "BAN",
+                "{\"value\":true,\"reason\":\"Review\"}",
+                UUID.randomUUID()));
+    assertEquals(
+        false,
+        runtime.queryForObject(
+            "SELECT banned FROM pos.local_customer WHERE customer_id=?", Boolean.class, id));
+  }
+
+  @Test
+  void stagedCustomerSyncUsesDurableInboxOutboxMembershipAndAcknowledgements() {
+    String access = customerToken();
+    UUID id = UUID.randomUUID();
+    customers.save(access, TERMINAL, customerEdit(id, -1, "0821234567"));
+    var store =
+        new za.co.onlinepos.server.local.CustomerSyncStore(
+            runtime, customerTransactions, journal, IDENTITY, access, TERMINAL);
+    var now = java.time.Instant.now();
+    var remoteFields =
+        java.util.Map.of(
+            "first_name",
+            "Cloud customer",
+            "phone1",
+            "+27821234567",
+            "preferred_store",
+            "Kenridge",
+            "city",
+            "Cloud City");
+    var times =
+        java.util.Map.of(
+            "first_name",
+            now,
+            "last_name",
+            now,
+            "phone1",
+            now,
+            "phone2",
+            now,
+            "email",
+            now,
+            "address",
+            now,
+            "preferred_store",
+            now);
+    UUID global = UUID.randomUUID();
+    var snapshot =
+        new za.co.onlinepos.contracts.CustomerSync.Snapshot(
+            global, 99L, 1, remoteFields, times, false, "", now);
+    var change =
+        new za.co.onlinepos.contracts.CustomerSync.Change(
+            UUID.randomUUID(), "test-cloud", now, snapshot, "cursor-1");
+    store.apply(change);
+    store.apply(change);
+    assertEquals(
+        1, runtime.queryForObject("SELECT count(*) FROM pos.local_customer", Integer.class));
+    assertEquals(
+        "Cloud City",
+        journal.tree(customers.detail(access, TERMINAL, id)).path("profile").path("city").asText());
+    assertEquals("cursor-1", store.checkpoint());
+    assertEquals(id, customers.detail(access, TERMINAL, global).get("id"));
+    var pending = store.pending(50).getFirst();
+    var ack =
+        new za.co.onlinepos.contracts.CustomerSync.Ack(
+            (UUID) pending.get("eventId"),
+            pending.get("digest").toString(),
+            "test-ack",
+            global,
+            99L);
+    store.acknowledge(ack);
+    store.acknowledge(ack);
+    assertEquals(0, store.pending(50).size());
+    var otherFields =
+        java.util.Map.of(
+            "first_name", "Other branch", "phone1", "0831234567", "preferred_store", "Uitzicht");
+    store.apply(
+        new za.co.onlinepos.contracts.CustomerSync.Change(
+            UUID.randomUUID(),
+            "test-cloud",
+            now,
+            new za.co.onlinepos.contracts.CustomerSync.Snapshot(
+                UUID.randomUUID(), 100L, 2, otherFields, times, false, "", now),
+            "cursor-2"));
+    assertEquals(
+        1, runtime.queryForObject("SELECT count(*) FROM pos.local_customer", Integer.class));
+    assertEquals(
+        2,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.inbox_receipt WHERE result->>'kind'='CUSTOMER'",
+            Integer.class));
+  }
+
+  @Test
+  void persistentCustomersSurviveDatabaseRestartAndBackupRestore() throws Exception {
+    String access = customerToken();
+    UUID id = UUID.randomUUID();
+    customers.save(access, TERMINAL, customerEdit(id, -1, "0821234567"));
+    String root = System.getenv("POS_TEST_CLUSTER_ROOT"), bin = System.getenv("POS_TEST_PG_BIN");
+    assertNotNull(root, "Only the dedicated disposable cluster may be restarted");
+    var restart =
+        new ProcessBuilder(bin + "/pg_ctl", "-D", root + "/data", "-m", "fast", "-w", "restart")
+            .redirectErrorStream(true)
+            .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            .start();
+    assertTrue(restart.waitFor(30, java.util.concurrent.TimeUnit.SECONDS));
+    assertEquals(0, restart.exitValue());
+    assertEquals(id, customers.detail(access, TERMINAL, id).get("id"));
+    java.net.URI uri = java.net.URI.create(System.getenv("POS_TEST_DATABASE_URL").substring(5));
+    var dump = java.nio.file.Files.createTempFile("pos-customers-", ".dump");
+    try {
+      run(bin, "pg_dump", uri, List.of("-d", "pos_stage3_test", "-Fc", "-f", dump.toString()));
+      run(
+          bin,
+          "pg_restore",
+          uri,
+          List.of("-d", "pos_stage3_restore", "--clean", "--if-exists", dump.toString()));
+      var restored =
+          new JdbcTemplate(
+              DatabaseTool.source(
+                  System.getenv("POS_TEST_DATABASE_URL")
+                      .replace("/pos_stage3_test", "/pos_stage3_restore"),
+                  "pos_owner",
+                  System.getenv("POS_TEST_OWNER_PASSWORD")));
+      assertEquals(
+          "+27821234567",
+          restored.queryForObject(
+              "SELECT normalized_phone FROM pos.local_customer WHERE customer_id=?",
+              String.class,
+              id));
+      assertEquals(
+          1,
+          restored.queryForObject("SELECT count(*) FROM pos.customer_sync_pending", Integer.class));
+      assertEquals(
+          1, restored.queryForObject("SELECT count(*) FROM pos.command_receipt", Integer.class));
+    } finally {
+      java.nio.file.Files.deleteIfExists(dump);
+    }
+  }
+
+  @Test
+  void customerConcurrentEditsAcrossTerminalsRejectStaleWritesAndPaginationIsStable()
+      throws Exception {
+    String access = customerToken(), otherTerminal = "test:other-terminal";
+    String other =
+        (String)
+            modules
+                .enter(
+                    new za.co.onlinepos.server.local.ModuleAccess.Entry(
+                        "000123", za.co.onlinepos.contracts.PosModule.CUSTOMERS),
+                    otherTerminal)
+                .get("token");
+    UUID id = UUID.randomUUID();
+    customers.save(access, TERMINAL, customerEdit(id, -1, "0821234567"));
+    var start = new java.util.concurrent.CountDownLatch(1);
+    try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+      var tasks = new java.util.ArrayList<java.util.concurrent.Future<Boolean>>();
+      for (int i = 0; i < 2; i++) {
+        int index = i;
+        tasks.add(
+            executor.submit(
+                () -> {
+                  start.await();
+                  try {
+                    customers.save(
+                        index == 0 ? access : other,
+                        index == 0 ? TERMINAL : otherTerminal,
+                        new za.co.onlinepos.contracts.Customers.Edit(
+                            UUID.randomUUID(),
+                            id,
+                            0,
+                            java.util.Map.of("first_name", "Terminal " + index)));
+                    return true;
+                  } catch (org.springframework.dao.DataIntegrityViolationException stale) {
+                    return false;
+                  }
+                }));
+      }
+      start.countDown();
+      int saved = 0;
+      for (var task : tasks) if (task.get(10, java.util.concurrent.TimeUnit.SECONDS)) saved++;
+      assertEquals(1, saved);
+    }
+    assertEquals(1L, customers.detail(other, otherTerminal, id).get("revision"));
+    for (int i = 0; i < 50; i++)
+      customers.save(
+          access,
+          TERMINAL,
+          customerEdit(UUID.randomUUID(), -1, String.format(java.util.Locale.ROOT, "083%07d", i)));
+    var first = customers.search(access, TERMINAL, "", false, "");
+    assertEquals(50, ((java.util.List<?>) first.get("items")).size());
+    assertEquals(true, first.get("hasMore"));
+    var last = customers.search(access, TERMINAL, "", false, first.get("nextCursor").toString());
+    assertEquals(1, ((java.util.List<?>) last.get("items")).size());
+    assertEquals(false, last.get("hasMore"));
+    assertEquals(
+        1,
+        ((java.util.List<?>)
+                customers.search(access, TERMINAL, "+27821234567", false, "").get("items"))
+            .size());
+  }
+
+  @Test
+  void customerOptionalTrackingNeverSuppressesBusinessRecordsAndBansRemainMandatory() {
+    String access = customerToken();
+    UUID id = UUID.randomUUID();
+    assertEquals(
+        4,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.audit_tracking_settings WHERE event_type LIKE 'CUSTOMER_%' AND enabled",
+            Integer.class));
+    ADMIN.update(
+        "UPDATE pos.audit_tracking_settings SET enabled=false WHERE event_type LIKE 'CUSTOMER_%'");
+    customers.save(access, TERMINAL, customerEdit(id, -1, "0821234567"));
+    assertEquals(
+        0,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='CUSTOMER_CREATED'",
+            Integer.class));
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.outbox_event WHERE event_type='CUSTOMER_CREATED'",
+            Integer.class));
+    assertEquals(
+        1, runtime.queryForObject("SELECT count(*) FROM pos.command_receipt", Integer.class));
+    assertThrows(
+        LocalFailure.class,
+        () ->
+            customers.status(
+                access,
+                TERMINAL,
+                id,
+                new za.co.onlinepos.contracts.Customers.Status(UUID.randomUUID(), 0, true, ""),
+                true));
+    customers.status(
+        access,
+        TERMINAL,
+        id,
+        new za.co.onlinepos.contracts.Customers.Status(
+            UUID.randomUUID(), 0, true, "Protected reason"),
+        true);
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.audit_record WHERE action='CUSTOMER_BANNED'", Integer.class));
+    assertFalse(
+        runtime
+            .queryForObject(
+                "SELECT details::text FROM pos.audit_record WHERE action='CUSTOMER_BANNED'",
+                String.class)
+            .contains("Protected reason"));
+    assertEquals(
+        2, runtime.queryForObject("SELECT count(*) FROM pos.customer_sync_pending", Integer.class));
+  }
+
+  @Test
+  void conflictCorrectionRequiresReviewedRevisionAndResolverPermissionWithoutManage() {
+    String access = customerToken();
+    UUID original = UUID.randomUUID(), separate = UUID.randomUUID();
+    customers.save(access, TERMINAL, customerEdit(original, -1, "0821234567"));
+    customers.save(access, TERMINAL, customerEdit(separate, -1, "0831234567"));
+    assertThrows(
+        LocalFailure.class,
+        () -> customers.save(access, TERMINAL, customerEdit(separate, 0, "0821234567")));
+    UUID conflict =
+        runtime.queryForObject("SELECT conflict_id FROM pos.customer_conflict", UUID.class);
+    customers.save(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Customers.Edit(
+            UUID.randomUUID(), separate, 0, java.util.Map.of("first_name", "Latest profile")));
+    ADMIN.update("DELETE FROM pos.role_permission WHERE permission='customers.manage'");
+    String resolver = enter("000123", za.co.onlinepos.contracts.PosModule.CUSTOMERS);
+    assertEquals(
+        409,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    customers.resolve(
+                        resolver,
+                        TERMINAL,
+                        conflict,
+                        new za.co.onlinepos.contracts.Customers.Resolution(
+                            UUID.randomUUID(),
+                            0,
+                            "SEPARATE",
+                            null,
+                            java.util.Map.of("phone1", "0841234567"),
+                            0L)))
+            .status());
+    var edit =
+        new za.co.onlinepos.contracts.Customers.Resolution(
+            UUID.randomUUID(), 0, "SEPARATE", null, java.util.Map.of("phone1", "0841234567"), 1L);
+    assertEquals(
+        customers.resolve(resolver, TERMINAL, conflict, edit),
+        customers.resolve(resolver, TERMINAL, conflict, edit));
+    var profile = journal.tree(customers.detail(resolver, TERMINAL, separate)).path("profile");
+    assertEquals("+27841234567", profile.path("phone1").asText());
+    assertEquals("Latest profile", profile.path("first_name").asText());
+    assertEquals("ZA", profile.path("country").asText());
+    assertEquals(
+        2, runtime.queryForObject("SELECT count(*) FROM pos.local_customer", Integer.class));
+  }
+
+  @Autowired za.co.onlinepos.server.local.ItemCustomizationService itemCustomization;
+
+  @Test
+  void itemRulesQuotesDraftSnapshotsAndLegacyBypassAreCheckedOnMaster() throws Exception {
+    String access = catalogueEditor();
+    var c = itemCustomization.state(access, TERMINAL);
+    var product =
+        c.products().values().stream()
+            .filter(p -> p.category().startsWith("menu:"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(
+        400,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    itemCustomization.quote(
+                        access,
+                        TERMINAL,
+                        new za.co.onlinepos.contracts.ItemCustomization.QuoteRequest(
+                            product.priceId(), product.priceRevision(), 1, null)))
+            .status());
+    var legacyActor =
+        staff.authenticate(
+            (String)
+                staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token"),
+            TERMINAL);
+    UUID rejectedOrder = UUID.randomUUID();
+    assertEquals(
+        400,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    operations.createDraft(
+                        legacyActor,
+                        new LocalCommands.CreateDraft(
+                            UUID.randomUUID(),
+                            rejectedOrder,
+                            List.of(
+                                new LocalCommands.DraftLine(
+                                    UUID.randomUUID(),
+                                    product.priceId(),
+                                    product.priceRevision(),
+                                    1)))))
+            .status());
+    assertEquals(
+        0,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.order_draft WHERE sync_id=?", Integer.class, rejectedOrder));
+    String wrongModule = enter("012345", za.co.onlinepos.contracts.PosModule.CUSTOMERS);
+    assertEquals(
+        403,
+        assertThrows(LocalFailure.class, () -> itemCustomization.state(wrongModule, TERMINAL))
+            .status());
+    var group = product.groups().getFirst();
+    var option = group.choices().getFirst();
+    var configuredGroup =
+        new za.co.onlinepos.contracts.ItemCustomization.Group(
+            group.key(),
+            group.name(),
+            1,
+            1,
+            null,
+            List.of(
+                new za.co.onlinepos.contracts.ItemCustomization.Choice(
+                    option.key(),
+                    option.name(),
+                    option.surcharge(),
+                    option.productPriceId(),
+                    null,
+                    true,
+                    true)));
+    var rule =
+        new za.co.onlinepos.contracts.ItemCustomization.ItemRule(
+            List.of(),
+            java.util.Map.of(
+                "burger:1",
+                new za.co.onlinepos.contracts.ItemCustomization.ExtraRule(
+                    new BigDecimal("0.10"), 1, true, "protein")),
+            List.of(configuredGroup),
+            true);
+    var rules =
+        new za.co.onlinepos.contracts.ItemCustomization.Rules(
+            java.util.Map.of(product.category(), List.of("burger:1")),
+            java.util.Map.of("burger:1", "protein"),
+            java.util.Map.of(product.priceId(), rule),
+            java.util.Map.of());
+    var edit =
+        new za.co.onlinepos.contracts.ItemCustomization.Edit(
+            UUID.randomUUID(), c.revision(), rules);
+    assertEquals(
+        itemCustomization.save(access, TERMINAL, edit),
+        itemCustomization.save(access, TERMINAL, edit));
+    var latest = itemCustomization.state(access, TERMINAL);
+    assertEquals(c.revision() + 1, latest.revision());
+    var selection =
+        new za.co.onlinepos.contracts.ItemCustomization.Selection(
+            latest.revision(),
+            java.util.Map.of(),
+            java.util.Map.of("burger:1", 3),
+            List.of(),
+            java.util.Map.of(),
+            List.of());
+    var quote =
+        itemCustomization.quote(
+            access,
+            TERMINAL,
+            new za.co.onlinepos.contracts.ItemCustomization.QuoteRequest(
+                product.priceId(), product.priceRevision(), 2, selection));
+    assertEquals(
+        product
+            .price()
+            .add(option.surcharge())
+            .add(new BigDecimal("0.30"))
+            .multiply(new BigDecimal("2")),
+        quote.total());
+    var draft =
+        new LocalCommands.CreateDraft(
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            List.of(
+                new LocalCommands.DraftLine(
+                    UUID.randomUUID(),
+                    product.priceId(),
+                    product.priceRevision(),
+                    2,
+                    quote.selection())));
+    assertEquals(
+        itemCustomization.createDraft(access, TERMINAL, draft, operations),
+        itemCustomization.createDraft(access, TERMINAL, draft, operations));
+    String saved =
+        runtime.queryForObject(
+            "SELECT snapshot::text FROM pos.order_line WHERE order_id=?",
+            String.class,
+            draft.orderId());
+    assertTrue(saved.contains("customization"));
+    assertEquals(
+        quote.total(),
+        runtime.queryForObject(
+            "SELECT total FROM pos.order_draft WHERE sync_id=?",
+            BigDecimal.class,
+            draft.orderId()));
+    assertEquals(
+        2, runtime.queryForObject("SELECT count(*) FROM pos.order_line_extra", Integer.class));
+    itemCustomization.save(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.ItemCustomization.Edit(
+            UUID.randomUUID(), latest.revision(), rules));
+    assertEquals(
+        saved,
+        runtime.queryForObject(
+            "SELECT snapshot::text FROM pos.order_line WHERE order_id=?",
+            String.class,
+            draft.orderId()));
+    assertEquals(
+        409,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    itemCustomization.quote(
+                        access,
+                        TERMINAL,
+                        new za.co.onlinepos.contracts.ItemCustomization.QuoteRequest(
+                            product.priceId(), product.priceRevision(), 2, selection)))
+            .status());
+    assertThrows(
+        Exception.class, () -> runtime.update("UPDATE pos.item_customization SET rules='{}'"));
+    http.perform(get("/api/local/catalogue/items").header("Authorization", "Bearer " + access))
+        .andExpect(status().isOk());
+    assertThrows(
+        Exception.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.apply_item_customization('bad','bad',0,'{}')", Long.class));
+  }
+
+  @Test
+  void itemRulesConcurrentSavesHaveOneWinnerAndFailedOutboxRollsBackEverything() throws Exception {
+    String access = catalogueEditor();
+    var c = itemCustomization.state(access, TERMINAL);
+    var rules = za.co.onlinepos.contracts.ItemCustomization.Rules.empty();
+    ADMIN.execute(
+        "CREATE FUNCTION pos.fail_item_outbox() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic failure'; END $$");
+    ADMIN.execute(
+        "CREATE TRIGGER fail_item_outbox BEFORE INSERT ON pos.outbox_event FOR EACH ROW EXECUTE FUNCTION pos.fail_item_outbox()");
+    UUID failed = UUID.randomUUID();
+    try {
+      assertThrows(
+          Exception.class,
+          () ->
+              itemCustomization.save(
+                  access,
+                  TERMINAL,
+                  new za.co.onlinepos.contracts.ItemCustomization.Edit(
+                      failed, c.revision(), rules)));
+    } finally {
+      ADMIN.execute("DROP TRIGGER fail_item_outbox ON pos.outbox_event");
+      ADMIN.execute("DROP FUNCTION pos.fail_item_outbox()");
+    }
+    assertEquals(c.revision(), itemCustomization.state(access, TERMINAL).revision());
+    assertEquals(
+        0, runtime.queryForObject("SELECT count(*) FROM pos.item_customization", Integer.class));
+    assertEquals(
+        0,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.command_receipt WHERE command_id=?", Integer.class, failed));
+    var start = new java.util.concurrent.CountDownLatch(1);
+    try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+      var a =
+          executor.submit(
+              () -> {
+                start.await();
+                try {
+                  itemCustomization.save(
+                      access,
+                      TERMINAL,
+                      new za.co.onlinepos.contracts.ItemCustomization.Edit(
+                          UUID.randomUUID(), c.revision(), rules));
+                  return true;
+                } catch (LocalFailure conflict) {
+                  assertEquals(409, conflict.status());
+                  return false;
+                }
+              });
+      var b =
+          executor.submit(
+              () -> {
+                start.await();
+                try {
+                  itemCustomization.save(
+                      access,
+                      TERMINAL,
+                      new za.co.onlinepos.contracts.ItemCustomization.Edit(
+                          UUID.randomUUID(), c.revision(), rules));
+                  return true;
+                } catch (LocalFailure conflict) {
+                  assertEquals(409, conflict.status());
+                  return false;
+                }
+              });
+      start.countDown();
+      assertNotEquals(a.get(), b.get());
+    }
+    assertEquals(c.revision() + 1, itemCustomization.state(access, TERMINAL).revision());
+  }
+
+  @Test
+  void configuredImportedComboSupportsMixedProductsAndFixedPriceWithoutDoubleCharging()
+      throws Exception {
+    String access = catalogueEditor();
+    ADMIN.update(
+        "UPDATE pos.catalogue_record SET data=jsonb_set(data,'{day_of_week}',to_jsonb(?::int)) WHERE source_type='special_day'",
+        java.time.LocalDate.now(java.time.ZoneId.of("Africa/Johannesburg"))
+            .getDayOfWeek()
+            .getValue());
+    var c = itemCustomization.state(access, TERMINAL);
+    var menu =
+        c.products().values().stream()
+            .filter(p -> p.category().startsWith("menu:"))
+            .findFirst()
+            .orElseThrow();
+    var pizza =
+        c.products().values().stream()
+            .filter(p -> p.category().startsWith("pizza:"))
+            .findFirst()
+            .orElseThrow();
+    var special =
+        c.products().values().stream()
+            .filter(p -> p.category().equals("special"))
+            .findFirst()
+            .orElseThrow();
+    assertFalse(special.available());
+    var group = menu.groups().getFirst();
+    var option = group.choices().getFirst();
+    var defaultGroup =
+        new za.co.onlinepos.contracts.ItemCustomization.Group(
+            group.key(),
+            group.name(),
+            1,
+            1,
+            null,
+            List.of(
+                new za.co.onlinepos.contracts.ItemCustomization.Choice(
+                    option.key(),
+                    option.name(),
+                    BigDecimal.ZERO,
+                    option.productPriceId(),
+                    null,
+                    true,
+                    true)));
+    var combo =
+        new za.co.onlinepos.contracts.ItemCustomization.Combo(
+            new BigDecimal("85.00"),
+            List.of(
+                new za.co.onlinepos.contracts.ItemCustomization.Slot(
+                    "food",
+                    "Main",
+                    1,
+                    pizza.priceId(),
+                    java.util.Map.of(
+                        pizza.priceId(),
+                        BigDecimal.ZERO,
+                        menu.priceId(),
+                        new BigDecimal("12.00")))));
+    var rules =
+        new za.co.onlinepos.contracts.ItemCustomization.Rules(
+            java.util.Map.of(),
+            java.util.Map.of(),
+            java.util.Map.of(
+                menu.priceId(),
+                new za.co.onlinepos.contracts.ItemCustomization.ItemRule(
+                    List.of(), java.util.Map.of(), List.of(defaultGroup), true)),
+            java.util.Map.of(special.priceId(), combo));
+    itemCustomization.save(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.ItemCustomization.Edit(
+            UUID.randomUUID(), c.revision(), rules));
+    var latest = itemCustomization.state(access, TERMINAL);
+    assertTrue(latest.products().get(special.priceId()).available());
+    var selection =
+        new za.co.onlinepos.contracts.ItemCustomization.Selection(
+            latest.revision(),
+            java.util.Map.of(),
+            java.util.Map.of(),
+            List.of(),
+            java.util.Map.of(),
+            List.of(
+                new za.co.onlinepos.contracts.ItemCustomization.Component(
+                    "food", menu.priceId(), menu.priceRevision(), null)));
+    var quote =
+        itemCustomization.quote(
+            access,
+            TERMINAL,
+            new za.co.onlinepos.contracts.ItemCustomization.QuoteRequest(
+                special.priceId(), special.priceRevision(), 2, selection));
+    assertEquals(new BigDecimal("194.00"), quote.total());
+    var draft =
+        new LocalCommands.CreateDraft(
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            List.of(
+                new LocalCommands.DraftLine(
+                    UUID.randomUUID(),
+                    special.priceId(),
+                    special.priceRevision(),
+                    2,
+                    quote.selection())));
+    itemCustomization.createDraft(access, TERMINAL, draft, operations);
+    assertEquals(
+        quote.total(),
+        runtime.queryForObject(
+            "SELECT total FROM pos.order_draft WHERE sync_id=?",
+            BigDecimal.class,
+            draft.orderId()));
+    assertTrue(
+        runtime
+            .queryForObject(
+                "SELECT snapshot::text FROM pos.order_line WHERE order_id=?",
+                String.class,
+                draft.orderId())
+            .contains("components"));
   }
 
   @Test
@@ -193,7 +1242,7 @@ class LocalPostgresIT {
                 "INSERT INTO pos.local_customer(customer_id,branch_id,display_name) VALUES (?,2,'wrong branch')",
                 UUID.randomUUID()));
     assertEquals(
-        "8",
+        "16",
         ADMIN.queryForObject(
             "SELECT version FROM public.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
             String.class));
@@ -492,6 +1541,12 @@ class LocalPostgresIT {
         manager,
         PRICE,
         new LocalCommands.PriceEdit(UUID.randomUUID(), 0, new BigDecimal("28.00"), true));
+    String auditAccess = adminToken(true);
+    auditPolicy.save(
+        auditAccess,
+        TERMINAL,
+        new za.co.onlinepos.contracts.Auditing.SettingsEdit(
+            UUID.randomUUID(), 0, tracking(false), "012345"));
     java.net.URI uri = java.net.URI.create(System.getenv("POS_TEST_DATABASE_URL").substring(5));
     var file = java.nio.file.Files.createTempFile("pos-stage3-restore-", ".dump");
     try {
@@ -515,7 +1570,24 @@ class LocalPostgresIT {
           IDENTITY.clusterId(),
           restored.queryForObject("SELECT cluster_id FROM pos.store_identity", UUID.class));
       assertEquals(
-          1, restored.queryForObject("SELECT count(*) FROM pos.command_receipt", Integer.class));
+          2, restored.queryForObject("SELECT count(*) FROM pos.command_receipt", Integer.class));
+      assertEquals(
+          false,
+          restored.queryForObject(
+              "SELECT enabled FROM pos.audit_tracking_settings WHERE branch_id=1 AND event_type='DRAFT_CREATED'",
+              Boolean.class));
+      assertEquals(
+          1,
+          restored.queryForObject(
+              "SELECT revision FROM pos.audit_policy WHERE branch_id=1", Long.class));
+      assertEquals(
+          1,
+          restored.queryForObject(
+              "SELECT count(*) FROM pos.audit_record WHERE action='AUDIT_SETTING_CHANGED'",
+              Integer.class));
+      assertThrows(
+          org.springframework.dao.DataAccessException.class,
+          () -> restored.execute("DELETE FROM pos.audit_record"));
       assertEquals(
           new BigDecimal("28.00"),
           restored.queryForObject("SELECT amount FROM pos.branch_price", BigDecimal.class));
@@ -2133,7 +3205,14 @@ class LocalPostgresIT {
                     UUID.randomUUID(),
                     (UUID) price.get("price_id"),
                     ((Number) price.get("revision")).longValue(),
-                    1))));
+                    1,
+                    new za.co.onlinepos.contracts.ItemCustomization.Selection(
+                        itemCustomization.state(access, TERMINAL).revision(),
+                        java.util.Map.of(),
+                        java.util.Map.of(),
+                        List.of(),
+                        java.util.Map.of("modifier:1", List.of("modifier:1")),
+                        List.of())))));
     String draft =
         runtime.queryForObject(
             "SELECT snapshot::text FROM pos.order_line WHERE order_id=?", String.class, order);
@@ -2702,5 +3781,103 @@ class LocalPostgresIT {
           ADMIN.queryForObject(
               "SELECT revision FROM pos.audit_policy WHERE branch_id=1", Long.class));
     }
+  }
+
+  @Test
+  void mandatoryEventsCannotBecomeOptionalAndReplayMetadataCannotChange() {
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            ADMIN.update(
+                "INSERT INTO pos.audit_tracking_settings VALUES(1,'AUDIT_SETTING_CHANGED',false)"));
+    UUID event = UUID.randomUUID(), entity = UUID.randomUUID(), command = UUID.randomUUID();
+    runtime.queryForObject(
+        "SELECT pos.record_audit_event(?,1,?,?,'STAFF_CHANGED',?,?,'{}',NULL,NULL,NULL,'LOCAL_MASTER')",
+        Object.class,
+        event,
+        manager.staffId(),
+        TERMINAL,
+        entity,
+        command);
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.record_audit_event(?,1,?,?,'STAFF_CHANGED',?,?,'{}',NULL,?,NULL,'LOCAL_MASTER')",
+                Object.class,
+                event,
+                manager.staffId(),
+                TERMINAL,
+                entity,
+                command,
+                UUID.randomUUID()));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.record_audit_event(?,1,?,?,'STAFF_CHANGED',?,?,'{}',?,NULL,NULL,'LOCAL_MASTER')",
+                Object.class,
+                event,
+                manager.staffId(),
+                TERMINAL,
+                entity,
+                command,
+                UUID.randomUUID()));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.record_audit_event(?,1,?,?,'STAFF_CHANGED',?,?,'{}',NULL,NULL,clock_timestamp()+interval '1 day','LOCAL_MASTER')",
+                Object.class,
+                event,
+                manager.staffId(),
+                TERMINAL,
+                entity,
+                command));
+  }
+
+  @Test
+  void categoryArchivePreservesProductReferencesAndBlocksNewQuotes() throws Exception {
+    String access = catalogueEditor();
+    var state = editor.state(access, TERMINAL);
+    var category = state.path("tables").path("menu_category").get(0);
+    var values = new java.util.LinkedHashMap<>(catalogueValues(category));
+    values.put("archived", true);
+    editor.edit(
+        access, TERMINAL, catalogueEdit(access, "menu_category", category, values, false, false));
+    var updated = editor.state(access, TERMINAL).path("tables").path("menu_category");
+    var archived =
+        java.util.stream.StreamSupport.stream(updated.spliterator(), false)
+            .filter(r -> r.path("id").equals(category.path("id")))
+            .findFirst()
+            .orElseThrow();
+    assertTrue(archived.path("archived").asBoolean());
+    assertFalse(archived.path("active").asBoolean());
+    var pricing = itemCustomization;
+    var catalog = pricing.state(access, TERMINAL);
+    for (var product : catalog.products().values())
+      if (product.category().equals("menu:" + category.path("id").asText())) {
+        assertFalse(product.available());
+        assertThrows(
+            LocalFailure.class,
+            () ->
+                pricing.quote(
+                    access,
+                    TERMINAL,
+                    new za.co.onlinepos.contracts.ItemCustomization.QuoteRequest(
+                        product.priceId(), product.priceRevision(), 1, null)));
+      }
+    var restored = new java.util.LinkedHashMap<>(catalogueValues(archived));
+    restored.put("archived", false);
+    restored.put("active", true);
+    editor.edit(
+        access, TERMINAL, catalogueEdit(access, "menu_category", archived, restored, false, false));
+    assertEquals(
+        category.path("id"),
+        editor.state(access, TERMINAL).path("tables").path("menu_category").get(0).path("id"));
+    String sales = enter("012345", za.co.onlinepos.contracts.PosModule.SALES_ORDERS);
+    http.perform(get("/api/local/catalogue/items").header("Authorization", "Bearer " + sales))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.editable").value(false));
   }
 }

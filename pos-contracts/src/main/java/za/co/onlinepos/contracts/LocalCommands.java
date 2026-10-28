@@ -11,9 +11,22 @@ public final class LocalCommands {
   public record PriceEdit(
       UUID commandId, long expectedRevision, BigDecimal amount, boolean available) {}
 
-  public record DraftLine(UUID lineId, UUID priceId, long expectedPriceRevision, int quantity) {}
+  public record DraftLine(
+      UUID lineId,
+      UUID priceId,
+      long expectedPriceRevision,
+      int quantity,
+      ItemCustomization.Selection customization) {
+    public DraftLine(UUID lineId, UUID priceId, long expectedPriceRevision, int quantity) {
+      this(lineId, priceId, expectedPriceRevision, quantity, null);
+    }
+  }
 
-  public record CreateDraft(UUID commandId, UUID orderId, List<DraftLine> lines) {}
+  public record CreateDraft(UUID commandId, UUID orderId, List<DraftLine> lines, UUID customerId) {
+    public CreateDraft(UUID commandId, UUID orderId, List<DraftLine> lines) {
+      this(commandId, orderId, lines, null);
+    }
+  }
 
   public record CancelDraft(UUID commandId, long expectedRevision) {}
 }

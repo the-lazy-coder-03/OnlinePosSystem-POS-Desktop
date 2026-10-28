@@ -1,6 +1,7 @@
 package za.co.onlinepos.desktop.customers;
 
 import java.util.UUID;
+import za.co.onlinepos.contracts.CustomerProfile;
 
 public record Customer(
     UUID id,

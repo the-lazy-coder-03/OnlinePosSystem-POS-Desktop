@@ -62,6 +62,7 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
   private Dialog<?> dialog;
   private Button save;
   private Label metadata;
+  private FlowPane actions;
 
   AuditPanel(
       ModuleGateway gateway,
@@ -83,7 +84,11 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
     setBottom(feedback);
     addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> activity.run());
     addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, e -> activity.run());
-    if (settingsMode) loadSettings();
+    if (settingsMode && gateway instanceof DevGateway) {
+      setCenter(
+          new Label(
+              "Owner authentication is deferred. Tracking remains enabled; changes are unavailable."));
+    } else if (settingsMode) loadSettings();
     else historyForm();
   }
 
@@ -92,6 +97,8 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
     busy = true;
     long operation = ++generation;
     if (getCenter() != null) getCenter().setDisable(true);
+    if (getTop() != null) getTop().setDisable(true);
+    if (actions != null) actions.setDisable(true);
     feedback.setText("Loading…");
     executor.execute(
         () -> {
@@ -101,7 +108,9 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
                 () -> {
                   if (closed || generation != operation) return;
                   busy = false;
+                  if (actions != null) actions.setDisable(false);
                   if (getCenter() != null) getCenter().setDisable(false);
+                  if (getTop() != null) getTop().setDisable(false);
                   feedback.setText("");
                   success.accept(value);
                 });
@@ -110,7 +119,9 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
                 () -> {
                   if (closed || generation != operation) return;
                   busy = false;
+                  if (actions != null) actions.setDisable(false);
                   if (getCenter() != null) getCenter().setDisable(false);
+                  if (getTop() != null) getTop().setDisable(false);
                   int status =
                       failure instanceof TrustedStoreClient.ModuleFailure f ? f.status() : 503;
                   conflict = status == 409;
@@ -143,6 +154,31 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
     return URLEncoder.encode(text, StandardCharsets.UTF_8);
   }
 
+  private static Label heading(String text) {
+    var label = new Label(text);
+    label.getStyleClass().add("admin-section-title");
+    return label;
+  }
+
+  private static String label(String name) {
+    String text = name.replace('_', ' ').toLowerCase(java.util.Locale.ROOT);
+    return Character.toUpperCase(text.charAt(0)) + text.substring(1);
+  }
+
+  private static javafx.util.StringConverter<String> choiceConverter(String emptyLabel) {
+    return new javafx.util.StringConverter<>() {
+      @Override
+      public String toString(String value) {
+        return value == null || value.isEmpty() ? emptyLabel : label(value);
+      }
+
+      @Override
+      public String fromString(String value) {
+        return value;
+      }
+    };
+  }
+
   private void historyForm() {
     staff.setPromptText("Staff username (exact)");
     staff.setId("audit-staff");
@@ -154,13 +190,17 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
     to.setPromptText("To: yyyy-MM-ddTHH:mm");
     from.setId("audit-from");
     to.setId("audit-to");
-    category.getItems().addAll("", "Orders", "Catalogue", "Staff", "Security", "System");
+    category
+        .getItems()
+        .addAll("", "Orders", "Catalogue", "Customers", "Staff", "Security", "System");
     category.setValue("");
+    category.setConverter(choiceConverter("All categories"));
     category.setPromptText("Category");
     category.setId("audit-category");
     action.getItems().add("");
     for (var type : Auditing.EventType.values()) action.getItems().add(type.name());
     action.setValue("");
+    action.setConverter(choiceConverter("All actions"));
     action.setId("audit-action");
     var apply = new Button("Apply filters");
     apply.setId("audit-apply");
@@ -212,7 +252,7 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
     setTop(
         new VBox(
             10,
-            new Label("Audit History · current branch only"),
+            heading("Audit History · current branch only"),
             new Label("Date/time filters use terminal time: " + ZoneId.systemDefault()),
             filters));
     loadHistory();
@@ -317,7 +357,7 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
     var content =
         new VBox(
             12,
-            new Label("Security → Audit History → Tracking Settings"),
+            heading("Security → Audit History → Tracking Settings"),
             new Label(
                 "Applies to branch "
                     + original.path("branchId").asText()
@@ -326,7 +366,7 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
     for (var type : response.path("types")) {
       String name = type.path("action").asText();
       boolean optional = type.path("optional").asBoolean();
-      var toggle = new CheckBox(name + (optional ? "" : " · mandatory, always recorded"));
+      var toggle = new CheckBox(label(name) + (optional ? "" : " · mandatory, always recorded"));
       toggle.setId("track-" + name);
       toggle.setSelected(!optional || original.path("settings").path(name).asBoolean(true));
       toggle.setDisable(!optional);
@@ -334,7 +374,13 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
         toggles.put(name, toggle);
         toggle.selectedProperty().addListener((o, a, b) -> changed());
       }
-      content.getChildren().add(toggle);
+      if (optional) content.getChildren().add(toggle);
+      else {
+        toggle.setText("");
+        content
+            .getChildren()
+            .add(new HBox(8, toggle, new Label(label(name) + " · mandatory, always recorded")));
+      }
     }
     var all = new Button("Enable All");
     all.setOnAction(
@@ -351,7 +397,16 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
     save.setDisable(true);
     save.setOnAction(e -> approve());
     var cancel = new Button("Cancel");
-    cancel.setOnAction(e -> loadSettings());
+    cancel.setOnAction(
+        e -> {
+          toggles.forEach(
+              (name, toggle) ->
+                  toggle.setSelected(original.path("settings").path(name).asBoolean(true)));
+          command = null;
+          dirty.accept(false);
+          save.setDisable(true);
+          feedback.setText("Changes discarded.");
+        });
     var reload = new Button("Reload");
     reload.setId("audit-settings-reload");
     reload.setOnAction(e -> loadSettings());
@@ -362,7 +417,8 @@ final class AuditPanel extends BorderPane implements AutoCloseable {
       toggles.values().forEach(t -> t.setDisable(true));
       content.getChildren().add(new Label("Preview is read-only. No owner approval is available."));
     }
-    content.getChildren().add(new FlowPane(10, 10, all, none, save, cancel, reload));
+    actions = new FlowPane(10, 10, all, none, save, cancel, reload);
+    setBottom(new VBox(10, actions, feedback));
     var scroll = new ScrollPane(content);
     scroll.setFitToWidth(true);
     setCenter(scroll);

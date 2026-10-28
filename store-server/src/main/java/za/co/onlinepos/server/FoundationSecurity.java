@@ -23,8 +23,32 @@ public class FoundationSecurity {
       ObjectProvider<za.co.onlinepos.installation.LanPolicy> policy,
       ObjectProvider<StaffService> staff,
       ObjectProvider<za.co.onlinepos.server.local.ModuleAccess> modules,
+      ObjectProvider<za.co.onlinepos.server.dev.DevDatabase.Identity> development,
       Environment env)
       throws Exception {
+    if (env.matchesProfiles("dev")) {
+      var identity = development.getObject();
+      return http.csrf(csrf -> csrf.disable())
+          .sessionManagement(
+              session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+          .addFilterBefore(
+              new za.co.onlinepos.server.dev.DevAuthenticationFilter(identity),
+              AnonymousAuthenticationFilter.class)
+          .authorizeHttpRequests(
+              requests ->
+                  requests
+                      .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR)
+                      .permitAll()
+                      .requestMatchers(HttpMethod.GET, "/api/local/health")
+                      .permitAll()
+                      .requestMatchers("/api/local/dev/data-manager/**")
+                      .hasAuthority("DEV_DATA")
+                      .anyRequest()
+                      .denyAll())
+          .exceptionHandling(
+              ex -> ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.FORBIDDEN)))
+          .build();
+    }
     if (registry.getIfAvailable() != null || staff.getIfAvailable() != null) {
       http.csrf(csrf -> csrf.disable())
           .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
@@ -75,6 +99,8 @@ public class FoundationSecurity {
                           "/api/local/modules/activity",
                           "/api/local/modules/logout",
                           "/api/local/admin/**",
+                          "/api/local/customers",
+                          "/api/local/customers/**",
                           "/api/local/catalogue/**")
                       .hasAuthority("POS_MODULE")
                       .requestMatchers(

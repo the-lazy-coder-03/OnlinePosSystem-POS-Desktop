@@ -8,6 +8,15 @@ import za.co.onlinepos.installation.JsonFiles;
 
 /** Isolated read-only sample data. Never reads trust material or connects to a store. */
 final class PreviewGateway extends ModuleGateway {
+  private final PreviewItems itemPreview = new PreviewItems();
+  private final PreviewCustomers customers = new PreviewCustomers();
+
+  @Override
+  public JsonNode customers(String path, String method, Object payload, String token)
+      throws Exception {
+    return customers.request(path, method, payload);
+  }
+
   PreviewGateway() {
     super(Path.of("unused-preview-root"));
   }
@@ -22,6 +31,8 @@ final class PreviewGateway extends ModuleGateway {
 
   @Override
   public JsonNode admin(String path, String method, Object payload, String token) {
+    if (path.equals("items") || path.startsWith("items/"))
+      return itemPreview.request(path, method, payload);
     if (!method.equals("GET"))
       throw new IllegalStateException("Saving is unavailable in this read-only preview.");
     if (path.equals("audit/types"))
@@ -70,6 +81,8 @@ final class PreviewGateway extends ModuleGateway {
   @Override
   public JsonNode catalogue(String path, String method, Object payload, String token)
       throws Exception {
+    if (path.equals("items") || path.startsWith("items/"))
+      return itemPreview.request(path, method, payload);
     if (!method.equals("GET"))
       throw new IllegalStateException("Saving is unavailable in this read-only preview.");
     var result = JsonFiles.JSON.createObjectNode();

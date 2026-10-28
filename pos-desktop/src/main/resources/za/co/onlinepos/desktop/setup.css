@@ -37,3 +37,14 @@
 .admin-panel .scroll-pane { -fx-background-color: transparent; }
 
 .admin-panel .label { -fx-wrap-text: true; }
+
+#item-workbench .titled-pane > .title { -fx-font-size: 15px; -fx-font-weight: normal; -fx-padding: 8px 12px; }
+#item-workbench .tab-label { -fx-wrap-text: false; -fx-font-size: 14px; }
+
+#item-workbench .tab-pane { -fx-open-tab-animation: NONE; -fx-close-tab-animation: NONE; }
+
+.local-data-manager { -fx-background-color: #f5f7fa; }
+.local-data-manager .field-error { -fx-text-fill: #a12b2b; -fx-font-size: 12px; }
+.local-data-manager .text-field { -fx-pref-column-count: 14; }
+.local-data-manager .button { -fx-padding: 8 12; }
+.local-data-manager .home-title { -fx-font-size: 24px; }
