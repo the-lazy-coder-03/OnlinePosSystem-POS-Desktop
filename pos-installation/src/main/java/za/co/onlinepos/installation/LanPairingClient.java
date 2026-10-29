@@ -74,6 +74,64 @@ public final class LanPairingClient {
     }
   }
 
+  public static MasterSelection inspect(String origin, LanPolicy network) throws Exception {
+    var uri = URI.create(origin);
+    if (!"https".equals(uri.getScheme())
+        || !LanPolicy.privateAddress(uri.getHost())
+        || network == null
+        || !network.contains(uri.getHost())
+        || uri.getUserInfo() != null
+        || uri.getQuery() != null
+        || uri.getFragment() != null
+        || !uri.getPath().isEmpty()
+        || (uri.getPort() != -1 && (uri.getPort() < 1 || uri.getPort() > 65535)))
+      throw new SecurityException("Choose a main computer on your store network");
+    var trust = firstUse(origin, 0);
+    try (var http = new TrustedStoreClient().client(trust, null, false)) {
+      var info =
+          JsonFiles.JSON.readValue(
+              exchange(http, origin, "/api/local/setup/bootstrap", null), Pairing.Bootstrap.class);
+      check(info, trust.branchId());
+      if (!info.clusterId().equals(trust.clusterId())
+          || !info.caFingerprint().equals(trust.caFingerprint()))
+        throw new SecurityException("Main computer identity changed");
+      StoreProfile profile = null;
+      try {
+        var metadata =
+            JsonFiles.JSON.readTree(exchange(http, origin, "/api/local/setup/store", null));
+        if (metadata.path("branchId").asInt() != info.branchId()
+            || !info.clusterId().toString().equals(metadata.path("clusterId").asText()))
+          throw new SecurityException("Store identity does not match the main computer");
+        if (metadata.path("profile").has("storeName"))
+          profile = JsonFiles.JSON.treeToValue(metadata.path("profile"), StoreProfile.class);
+      } catch (SecurityException legacy) {
+        if (!"LAN pairing refused (404)".equals(legacy.getMessage())
+            && !"LAN pairing refused (403)".equals(legacy.getMessage())) throw legacy;
+      }
+      return new MasterSelection(
+          origin, info.branchId(), info.clusterId(), info.caFingerprint(), profile);
+    }
+  }
+
+  public static Pairing.Identity connectSelected(
+      MasterSelection expected, UUID terminal, String name, SecretStore secrets) throws Exception {
+    Pairing.Invitation pinned;
+    try {
+      pinned = JsonFiles.JSON.readValue(secrets.get("pairing-trust"), Pairing.Invitation.class);
+    } catch (java.nio.file.NoSuchFileException missing) {
+      pinned = firstUse(expected.origin(), expected.branchId());
+      if (!pinned.clusterId().equals(expected.clusterId())
+          || !pinned.caFingerprint().equals(expected.caFingerprint()))
+        throw new SecurityException("Main computer changed since selection; check it again");
+      secrets.put("pairing-trust", JsonFiles.JSON.writeValueAsBytes(pinned));
+    }
+    if (pinned.branchId() != expected.branchId()
+        || !pinned.clusterId().equals(expected.clusterId())
+        || !pinned.caFingerprint().equals(expected.caFingerprint()))
+      throw new SecurityException("Cannot replace existing terminal trust");
+    return connectAt(expected.origin(), expected.branchId(), terminal, name, secrets);
+  }
+
   public static Pairing.Identity connect(
       String ip, int branch, UUID terminal, String name, SecretStore secrets) throws Exception {
     return connectAt(origin(ip), branch, terminal, name, secrets);
@@ -172,7 +230,8 @@ public final class LanPairingClient {
 
   private static void check(Pairing.Bootstrap info, int branch) {
     if (info.version() != 1
-        || info.branchId() != branch
+        || info.branchId() <= 0
+        || (branch != 0 && info.branchId() != branch)
         || info.clusterId() == null
         || info.installationId() == null
         || !"MASTER".equals(info.role())

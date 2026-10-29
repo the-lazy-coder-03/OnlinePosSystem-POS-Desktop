@@ -75,6 +75,9 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
   private final ListView<String> cartView = new ListView<>();
   private Catalog catalog;
   private Rules rules;
+  private RecipeEditor recipeEditor;
+  private UUID recipeProduct;
+  private boolean selectingRecipe;
   private boolean busy, closed, dirty;
   private final boolean orderingOnly;
   private final ComboBox<String> itemType = new ComboBox<>();
@@ -84,6 +87,8 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
   private ItemCustomization.Edit pending;
   private LocalCommands.CreateDraft pendingDraft;
   private Dialog<?> dialog;
+  private java.util.function.Consumer<Rules> draftListener;
+  private VBox draftComboHost;
   private Quote quote;
   private QuoteRequest confirmedRequest;
   private SelectionForm selectionForm;
@@ -96,6 +101,28 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
 
   ItemWorkbench(
       ModuleGateway gateway, ExecutorService executor, String token, boolean orderingOnly) {
+    this(gateway, executor, token, orderingOnly, null, null, null);
+  }
+
+  ItemWorkbench(
+      ModuleGateway gateway,
+      ExecutorService executor,
+      String token,
+      Catalog initial,
+      UUID product,
+      java.util.function.Consumer<Rules> listener) {
+    this(gateway, executor, token, false, initial, product, listener);
+  }
+
+  private ItemWorkbench(
+      ModuleGateway gateway,
+      ExecutorService executor,
+      String token,
+      boolean orderingOnly,
+      Catalog initial,
+      UUID product,
+      java.util.function.Consumer<Rules> listener) {
+    this.draftListener = listener;
     this.orderingOnly = orderingOnly;
     this.gateway = gateway;
     this.executor = executor;
@@ -106,6 +133,20 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
     products.setPrefWidth(430);
     products.setOnAction(
         e -> {
+          if (selectingRecipe) return;
+          if (recipeEditor != null && !java.util.Objects.equals(recipeProduct, id())) {
+            if (!recipeEditor.confirmClose()) {
+              selectingRecipe = true;
+              products.getItems().stream()
+                  .filter(p -> p.value().equals(recipeProduct))
+                  .findFirst()
+                  .ifPresent(products::setValue);
+              selectingRecipe = false;
+              return;
+            }
+            recipeEditor.close();
+            recipeEditor = null;
+          }
           quote = null;
           confirmedRequest = null;
           render();
@@ -160,7 +201,23 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
     feedback.setWrapText(true);
     feedback.setId("item-feedback");
     setBottom(feedback);
-    load();
+    if (initial == null) load();
+    else {
+      catalog = initial;
+      rules = initial.rules();
+      selectingRecipe = true;
+      var p = catalog.products().get(product);
+      products.getItems().setAll(new Named<>(product, p.name()));
+      products.getSelectionModel().selectFirst();
+      selectingRecipe = false;
+      setTop(new FlowPane(10, 10, new Label("Product configuration"), itemType));
+      render();
+    }
+  }
+
+  void comboHost(VBox host) {
+    draftComboHost = host;
+    render();
   }
 
   private <T> void work(Callable<T> task, Consumer<T> success) {
@@ -218,6 +275,11 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
   }
 
   private void load() {
+    if (recipeEditor != null) {
+      recipeEditor.close();
+      recipeEditor = null;
+      recipeProduct = null;
+    }
     work(
         () ->
             JsonFiles.JSON.treeToValue(
@@ -277,6 +339,7 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
     quote = null;
     confirmedRequest = null;
     feedback.setText("Unsaved item settings. Save to obtain an authoritative quote.");
+    if (draftListener != null) draftListener.accept(rules);
     render();
   }
 
@@ -382,7 +445,14 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
     int selected = tabs.getSelectionModel().getSelectedIndex();
     tabs.getTabs().clear();
     try {
-      if (orderingOnly) tabs.getTabs().add(tab("Order builder", builder()));
+      if (draftListener != null) {
+        tabs.getTabs().addAll(tab("Extras & Swaps", extras()), tab("Options", options()));
+        if (draftComboHost != null) {
+          draftComboHost.getChildren().clear();
+          if (product().combo() != null) draftComboHost.getChildren().add(combos());
+        } else if (product().combo() != null)
+          tabs.getTabs().add(tab("Combo Configuration", combos()));
+      } else if (orderingOnly) tabs.getTabs().add(tab("Order builder", builder()));
       else
         tabs.getTabs()
             .addAll(
@@ -406,28 +476,26 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
   }
 
   private javafx.scene.Node recipe() {
-    var b = box();
-    b.getChildren()
-        .add(
-            new Label(
-                "Recipe quantities are included. Removing ingredients does not reduce the item price."));
-    for (var extra : product().extras())
-      if (extra.included() > 0)
-        b.getChildren()
-            .add(
-                new HBox(
-                    12,
-                    new Label(
-                        extra.name()
-                            + " × "
-                            + extra.included()
-                            + " · "
-                            + (extra.removable() ? "removable" : "required")
-                            + " · "
-                            + extra.origin()),
-                    action("Edit", () -> editExtra(extra))));
-    b.getChildren().add(action("Add / edit recipe ingredient", () -> chooseExtra()));
-    return scroll(b);
+    if (recipeEditor != null && java.util.Objects.equals(recipeProduct, id())) return recipeEditor;
+    if (recipeEditor != null) {
+      recipeEditor.close();
+      recipeEditor = null;
+    }
+    if (dirty)
+      return new Label("Save or discard staged item settings before editing the database recipe.");
+    if (product().combo() != null) return new Label("Edit the recipe of each component product.");
+    if (gateway instanceof PreviewGateway)
+      return new Label("Sample preview: database recipe editing is available on the local Master.");
+    recipeProduct = id();
+    recipeEditor = new RecipeEditor(gateway, executor, token, id(), () -> load());
+    recipeEditor.onDirty(
+        changed -> {
+          save.setDisable(changed);
+          itemType.setDisable(changed);
+          for (var tab : tabs.getTabs())
+            if (!tab.getText().equals("Recipe")) tab.setDisable(changed);
+        });
+    return recipeEditor;
   }
 
   private void chooseExtra() {
@@ -510,62 +578,65 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
   private javafx.scene.Node extras() {
     var b = box();
     String category = product().category();
-    b.getChildren()
-        .add(
-            new Label(
-                "Category: "
-                    + catalog.categories().getOrDefault(category, category)
-                    + " — changes below apply live to every item in this category."));
-    var inherited = rules.categoryExtras().getOrDefault(category, List.of());
-    for (var e : catalog.extras().values()) {
-      var use = new CheckBox(e.name());
-      use.setSelected(inherited.contains(e.key()));
-      use.setDisable(!catalog.editable());
-      use.setOnAction(
-          event -> {
-            var map = new LinkedHashMap<>(rules.categoryExtras());
-            var keys = new ArrayList<>(map.getOrDefault(category, List.of()));
-            if (use.isSelected()) keys.add(e.key());
-            else keys.remove(e.key());
-            map.put(category, keys);
-            rules = new Rules(map, rules.swapGroups(), rules.items(), rules.combos());
-            changed();
-          });
-      var swapGroup =
-          action(
-              "Set shared swap group",
-              () -> {
-                var popup = popup("Compatible swap group: " + e.name());
-                var input = new TextField(rules.swapGroups().getOrDefault(e.key(), ""));
-                popup
-                    .getDialogPane()
-                    .setContent(
-                        new VBox(
-                            10,
-                            new Label(
-                                "Equal or cheaper replacements are free within this group. Blank disables shared swapping."),
-                            input));
-                finish(
-                    popup,
-                    () -> {
-                      var groups = new LinkedHashMap<>(rules.swapGroups());
-                      if (input.getText().isBlank()) groups.remove(e.key());
-                      else groups.put(e.key(), input.getText().strip());
-                      rules =
-                          new Rules(rules.categoryExtras(), groups, rules.items(), rules.combos());
-                      changed();
-                    });
-              });
+    if (draftListener == null) {
       b.getChildren()
           .add(
-              new FlowPane(
-                  10,
-                  8,
-                  use,
-                  new Label("Swap group: " + rules.swapGroups().getOrDefault(e.key(), "None")),
-                  swapGroup));
+              new Label(
+                  "Category: "
+                      + catalog.categories().getOrDefault(category, category)
+                      + " — changes below apply live to every item in this category."));
+      var inherited = rules.categoryExtras().getOrDefault(category, List.of());
+      for (var e : catalog.extras().values()) {
+        var use = new CheckBox(e.name());
+        use.setSelected(inherited.contains(e.key()));
+        use.setDisable(!catalog.editable());
+        use.setOnAction(
+            event -> {
+              var map = new LinkedHashMap<>(rules.categoryExtras());
+              var keys = new ArrayList<>(map.getOrDefault(category, List.of()));
+              if (use.isSelected()) keys.add(e.key());
+              else keys.remove(e.key());
+              map.put(category, keys);
+              rules = new Rules(map, rules.swapGroups(), rules.items(), rules.combos());
+              changed();
+            });
+        var swapGroup =
+            action(
+                "Set shared swap group",
+                () -> {
+                  var popup = popup("Compatible swap group: " + e.name());
+                  var input = new TextField(rules.swapGroups().getOrDefault(e.key(), ""));
+                  popup
+                      .getDialogPane()
+                      .setContent(
+                          new VBox(
+                              10,
+                              new Label(
+                                  "Equal or cheaper replacements are free within this group. Blank disables shared swapping."),
+                              input));
+                  finish(
+                      popup,
+                      () -> {
+                        var groups = new LinkedHashMap<>(rules.swapGroups());
+                        if (input.getText().isBlank()) groups.remove(e.key());
+                        else groups.put(e.key(), input.getText().strip());
+                        rules =
+                            new Rules(
+                                rules.categoryExtras(), groups, rules.items(), rules.combos());
+                        changed();
+                      });
+                });
+        b.getChildren()
+            .add(
+                new FlowPane(
+                    10,
+                    8,
+                    use,
+                    new Label("Swap group: " + rules.swapGroups().getOrDefault(e.key(), "None")),
+                    swapGroup));
+      }
     }
-    b.getChildren().add(new Label("This item: inherited rules and exceptions"));
+    b.getChildren().add(new Label("This product: extras and exceptions"));
     for (var e : product().extras()) {
       var exclude =
           action(
@@ -1450,6 +1521,8 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
   }
 
   boolean confirmClose() {
+    if (recipeEditor != null && !recipeEditor.confirmClose()) return false;
+
     if (busy) {
       feedback.setText("Wait for the current request to finish.");
       return false;
@@ -1471,6 +1544,8 @@ final class ItemWorkbench extends BorderPane implements AutoCloseable {
 
   @Override
   public void close() {
+    if (recipeEditor != null) recipeEditor.close();
+
     closed = true;
     if (dialog != null) dialog.close();
     tabs.getTabs().clear();

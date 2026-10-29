@@ -66,6 +66,81 @@ public class DevGridEndpoints {
             .toList());
   }
 
+  @GetMapping("/catalogue/recipes/price/{price}")
+  public Object recipeForPrice(
+      @PathVariable("price") java.util.UUID price,
+      @RequestParam(name = "family", required = false) String family) {
+    return read(
+        () -> {
+          var state = catalogue.state();
+          for (String table : java.util.List.of("branch_pizza_price", "branch_menu_item_price"))
+            for (var row : state.path("tables").path(table)) {
+              var key = new java.util.ArrayList<Long>();
+              key.add(row.path("branch_id").asLong());
+              key.add(
+                  row.path(table.equals("branch_pizza_price") ? "pizza_id" : "menu_item_id")
+                      .asLong());
+              if (table.equals("branch_pizza_price")) key.add(row.path("pizza_size_id").asLong());
+              if (DevModuleStore.identity(table, key.toString()).equals(price))
+                return za.co.onlinepos.server.recipes.RecipePlanner.view(
+                    state,
+                    new za.co.onlinepos.contracts.Recipes.Product(
+                        table.equals("branch_pizza_price") ? "pizza" : "menu_item", key.get(1)),
+                    family);
+            }
+          throw new IllegalArgumentException("This item has no product recipe");
+        });
+  }
+
+  @GetMapping("/catalogue/recipes/{kind}/{id}")
+  public Object recipe(
+      @PathVariable("kind") String kind,
+      @PathVariable("id") long id,
+      @RequestParam(name = "family", required = false) String family) {
+    return read(
+        () ->
+            za.co.onlinepos.server.recipes.RecipePlanner.view(
+                catalogue.state(),
+                new za.co.onlinepos.contracts.Recipes.Product(kind, id),
+                family));
+  }
+
+  @PutMapping("/catalogue/recipes")
+  public Object saveRecipe(@RequestBody za.co.onlinepos.contracts.Recipes.Save save) {
+    return catalogue.edit(
+        new CatalogueManagement.Edit(
+            save.commandId(),
+            save.expectedRevision(),
+            java.util.List.of(),
+            save.confirmSharedRecipe(),
+            save));
+  }
+
+  @GetMapping("/catalogue/products/{kind}/{id}")
+  public Object product(
+      @org.springframework.web.bind.annotation.PathVariable("kind") String kind,
+      @org.springframework.web.bind.annotation.PathVariable("id") long id) {
+    return catalogue.product(kind, id);
+  }
+
+  @PutMapping("/catalogue/products")
+  public Object productSave(@RequestBody za.co.onlinepos.contracts.ProductEdits.Save save) {
+    return catalogue.saveProduct(save);
+  }
+
+  @PutMapping("/catalogue/recipes/shared")
+  public Object sharedRecipe(@RequestBody za.co.onlinepos.contracts.Recipes.Save save) {
+    return catalogue.edit(
+        new CatalogueManagement.Edit(
+            save.commandId(),
+            save.expectedRevision(),
+            java.util.List.of(),
+            true,
+            save,
+            null,
+            true));
+  }
+
   @GetMapping("/catalogue/state")
   public Object catalogue() {
     return catalogue.state();

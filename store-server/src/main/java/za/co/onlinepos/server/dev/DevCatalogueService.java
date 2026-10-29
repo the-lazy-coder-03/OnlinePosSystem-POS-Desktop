@@ -27,20 +27,23 @@ public class DevCatalogueService {
     return store.tx.execute(
         status -> {
           store.lock();
-          return store.tree(
-              Map.of(
-                  "revision",
-                  store.revision(),
-                  "branchId",
-                  store.branchId(),
-                  "editable",
-                  true,
-                  "schema",
-                  repository.schema(),
-                  "tables",
-                  repository.tables(true),
-                  "warnings",
-                  List.of("Development H2 — authentication and cloud delivery are not enabled.")));
+          return za.co.onlinepos.server.catalogue.ProductPlanner.identities(
+              store.tree(
+                  Map.of(
+                      "revision",
+                      store.revision(),
+                      "branchId",
+                      store.branchId(),
+                      "editable",
+                      true,
+                      "schema",
+                      repository.schema(),
+                      "tables",
+                      repository.tables(true),
+                      "warnings",
+                      List.of(
+                          "Development H2 — authentication and cloud delivery are not enabled."))),
+              (table, key) -> DevModuleStore.identity(table, key.toString()));
         });
   }
 
@@ -139,6 +142,29 @@ public class DevCatalogueService {
         });
   }
 
+  public JsonNode product(String kind, long id) {
+    return store.tx.execute(
+        status -> {
+          store.lock();
+          return za.co.onlinepos.server.catalogue.ProductPlanner.view(state(), catalog(), kind, id);
+        });
+  }
+
+  public JsonNode saveProduct(za.co.onlinepos.contracts.ProductEdits.Save save) {
+    if (save == null)
+      throw new za.co.onlinepos.server.local.ProductDraftFailure("Invalid product draft");
+    try {
+      return edit(
+          new CatalogueManagement.Edit(
+              save.commandId(), save.expectedRevision(), List.of(), false, null, save, false));
+    } catch (IllegalArgumentException failure) {
+      throw new za.co.onlinepos.server.local.ProductDraftFailure(failure.getMessage());
+    } catch (DevCategoryService.Failure failure) {
+      if (failure.status() != 400) throw failure;
+      throw new za.co.onlinepos.server.local.ProductDraftFailure(failure.getMessage());
+    }
+  }
+
   public JsonNode edit(CatalogueManagement.Edit edit) {
     return store.command(
         edit.commandId(),
@@ -147,9 +173,35 @@ public class DevCatalogueService {
         () -> {
           if (edit.expectedRevision() != store.revision())
             throw DevModuleStore.fail(409, "Catalogue changed; reload");
-          if (edit.changes() == null || edit.changes().isEmpty() || edit.changes().size() > 100)
+          var beforeState = state();
+          var allocated = new java.util.HashMap<String, Long>();
+          var prepared =
+              edit.product() == null
+                  ? null
+                  : za.co.onlinepos.server.catalogue.ProductPlanner.prepare(
+                      state(),
+                      edit.product(),
+                      table ->
+                          store.jdbc.queryForObject(
+                                  "SELECT COALESCE(MAX("
+                                      + repository.keys(table).getFirst()
+                                      + "),0)+1 FROM public."
+                                      + table,
+                                  Long.class)
+                              + allocated.merge(table, 1L, Long::sum)
+                              - 1);
+          var changes = new ArrayList<CatalogueManagement.Change>(edit.changes());
+          if (prepared != null) changes.addAll(prepared.changes());
+          else if (edit.recipe() != null)
+            changes.addAll(
+                edit.sharedRecipe()
+                    ? za.co.onlinepos.server.recipes.RecipePlanner.sharedChanges(
+                        state(), edit.recipe())
+                    : za.co.onlinepos.server.recipes.RecipePlanner.changes(state(), edit.recipe()));
+          if (changes.size() > 4500
+              || (changes.isEmpty() && edit.recipe() == null && prepared == null))
             throw DevModuleStore.fail(400, "Invalid catalogue batch");
-          for (var change : edit.changes()) {
+          for (var change : changes) {
             String table = change.table();
             repository.metadata(table);
             if (change.values() == null)
@@ -167,7 +219,7 @@ public class DevCatalogueService {
                           "SELECT count(*) FROM public.burger_recipe_assignment WHERE recipe_id=?",
                           Integer.class,
                           recipe)
-                      > 1) throw DevModuleStore.fail(409, "Confirm shared recipe changes");
+                      > 0) throw DevModuleStore.fail(409, "Confirm shared recipe changes");
             }
 
             if (table.equals("branch")) throw DevModuleStore.fail(400, "Branch identity is fixed");
@@ -188,7 +240,7 @@ public class DevCatalogueService {
                     "DELETE FROM public." + table + " WHERE " + repository.where(table),
                     change.originalKey().toArray());
             } else {
-              if (change.originalKey() == null && keys.size() == 1) {
+              if (change.originalKey() == null && keys.size() == 1 && prepared == null) {
                 String key = keys.getFirst();
                 long next =
                     store.jdbc.queryForObject(
@@ -256,6 +308,45 @@ public class DevCatalogueService {
             }
           }
           repository.validateAll();
+          if (edit.recipe() != null || prepared != null && prepared.recipe() != null) {
+            var sourceRules =
+                store.parse(
+                    store.jdbc.queryForObject(
+                        "SELECT rules FROM dev_meta.catalogue_state WHERE singleton=1",
+                        String.class));
+            var cleaned =
+                za.co.onlinepos.server.recipes.RecipePlanner.cleanRules(
+                    sourceRules,
+                    beforeState,
+                    state(),
+                    changes,
+                    (table, key) -> DevModuleStore.identity(table, key.toString()));
+            store.jdbc.update(
+                "UPDATE dev_meta.catalogue_state SET rules=? WHERE singleton=1",
+                store.encode(cleaned));
+            if (prepared == null) ItemCustomization.validate(catalog());
+          }
+          if (prepared != null) {
+            var oldRules = catalog().rules();
+            var nextRules =
+                za.co.onlinepos.server.catalogue.ProductPlanner.rules(
+                    oldRules,
+                    prepared,
+                    (table, key) -> DevModuleStore.identity(table, key.toString()));
+            var nextValue = store.tree(nextRules);
+            if (prepared.recipe() != null)
+              nextValue =
+                  za.co.onlinepos.server.recipes.RecipePlanner.cleanRules(
+                      nextValue,
+                      beforeState,
+                      state(),
+                      changes,
+                      (table, key) -> DevModuleStore.identity(table, key.toString()));
+            store.jdbc.update(
+                "UPDATE dev_meta.catalogue_state SET rules=? WHERE singleton=1",
+                store.encode(nextValue));
+            ItemCustomization.validate(catalog());
+          }
           long revision = store.bump();
           store.event(
               edit.commandId(),
@@ -264,14 +355,13 @@ public class DevCatalogueService {
               revision,
               Map.of(
                   "tables",
-                  edit.changes().stream()
-                      .map(CatalogueManagement.Change::table)
-                      .distinct()
-                      .toList(),
+                  changes.stream().map(CatalogueManagement.Change::table).distinct().toList(),
                   "recordsChanged",
-                  edit.changes().size()));
+                  changes.size()));
           store.queueRecord(edit.commandId(), edit);
-          return store.tree(Map.of("revision", revision));
+          return prepared == null
+              ? store.tree(Map.of("revision", revision))
+              : store.tree(Map.of("revision", revision, "product", prepared.product()));
         });
   }
 }

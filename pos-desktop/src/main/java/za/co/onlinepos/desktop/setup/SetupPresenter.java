@@ -56,6 +56,46 @@ public class SetupPresenter {
         executor);
   }
 
+  public CompletableFuture<java.util.List<za.co.onlinepos.installation.MasterSelection>>
+      findMasters(za.co.onlinepos.installation.LanPolicy network) {
+    return CompletableFuture.supplyAsync(
+        () -> {
+          try (var scan = new za.co.onlinepos.installation.MdnsDiscovery(network)) {
+            var result = new java.util.ArrayList<za.co.onlinepos.installation.MasterSelection>();
+            for (String origin : scan.candidates()) {
+              if (!za.co.onlinepos.installation.LanPolicy.privateAddress(
+                  java.net.URI.create(origin).getHost())) continue;
+              try {
+                result.add(za.co.onlinepos.installation.LanPairingClient.inspect(origin, network));
+              } catch (Exception unavailable) {
+                /* Stale discovery hints are not trusted identities. */
+              }
+            }
+            return result.stream().distinct().toList();
+          } catch (Exception error) {
+            throw new java.util.concurrent.CompletionException(error);
+          }
+        },
+        executor);
+  }
+
+  public CompletableFuture<za.co.onlinepos.installation.MasterSelection> inspectMaster(
+      String address, za.co.onlinepos.installation.LanPolicy network) {
+    return CompletableFuture.supplyAsync(
+        () -> {
+          try {
+            String origin =
+                address.startsWith("https://")
+                    ? address
+                    : za.co.onlinepos.installation.LanPairingClient.origin(address);
+            return za.co.onlinepos.installation.LanPairingClient.inspect(origin, network);
+          } catch (Exception error) {
+            throw new java.util.concurrent.CompletionException(error);
+          }
+        },
+        executor);
+  }
+
   public CompletableFuture<String> discover() {
     return CompletableFuture.supplyAsync(
         () -> {

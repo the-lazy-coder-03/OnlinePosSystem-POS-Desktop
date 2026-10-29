@@ -9,6 +9,22 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 @Profile({"installed", "local-store"})
 public class LocalErrors {
+  @ExceptionHandler(za.co.onlinepos.server.local.ProductDraftFailure.class)
+  ResponseEntity<Map<String, String>> product(
+      za.co.onlinepos.server.local.ProductDraftFailure failure) {
+    return ResponseEntity.badRequest()
+        .body(
+            Map.of(
+                "code",
+                "PRODUCT_VALIDATION",
+                "section",
+                failure.section(),
+                "field",
+                failure.field(),
+                "message",
+                failure.getMessage()));
+  }
+
   @ExceptionHandler(LocalFailure.class)
   ResponseEntity<Map<String, String>> failure(LocalFailure failure) {
     return ResponseEntity.status(failure.status()).body(Map.of("error", failure.getMessage()));

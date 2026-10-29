@@ -12,5 +12,29 @@ public final class CatalogueManagement {
       String table, List<Long> originalKey, Map<String, Object> values, boolean remove) {}
 
   public record Edit(
-      UUID commandId, long expectedRevision, List<Change> changes, boolean confirmSharedRecipe) {}
+      UUID commandId,
+      long expectedRevision,
+      List<Change> changes,
+      boolean confirmSharedRecipe,
+      @com.fasterxml.jackson.annotation.JsonInclude(
+              com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+          Recipes.Save recipe,
+      @com.fasterxml.jackson.annotation.JsonInclude(
+              com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+          ProductEdits.Save product,
+      boolean sharedRecipe) {
+    public Edit(
+        UUID commandId,
+        long expectedRevision,
+        List<Change> changes,
+        boolean confirmSharedRecipe,
+        Recipes.Save recipe) {
+      this(commandId, expectedRevision, changes, confirmSharedRecipe, recipe, null, false);
+    }
+
+    public Edit(
+        UUID commandId, long expectedRevision, List<Change> changes, boolean confirmSharedRecipe) {
+      this(commandId, expectedRevision, changes, confirmSharedRecipe, null, null, false);
+    }
+  }
 }

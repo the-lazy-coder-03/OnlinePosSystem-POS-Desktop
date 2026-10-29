@@ -92,6 +92,47 @@ final class PreviewGateway extends ModuleGateway {
       result.set("schema", JsonFiles.JSON.readTree(schema));
       result.set("tables", JsonFiles.JSON.readTree(tables));
     }
+    if (path.startsWith("products/")) {
+      String[] parts = path.split("/");
+      String kind = parts[1];
+      long id = Long.parseLong(parts[2]);
+      JsonNode details = null;
+      for (var row : result.path("tables").path(kind))
+        if (row.path(kind.equals("pizza") ? "pizza_id" : "id").asLong() == id) details = row;
+      if (details == null) throw new IllegalArgumentException("Sample product not found");
+      var recipe = JsonFiles.JSON.createObjectNode().put("family", "ingredient");
+      var ingredients = recipe.putArray("ingredients");
+      for (var row : result.path("tables").path("ingredient")) {
+        var ingredient =
+            ingredients
+                .addObject()
+                .put("key", "ingredient:" + row.path("ingredient_id").asLong())
+                .put("name", row.path("name").asText())
+                .put("available", row.path("active").asBoolean())
+                .put("compatible", true)
+                .put("selected", false);
+        var origins = ingredient.putArray("origins");
+        if (kind.equals("pizza"))
+          for (var link : result.path("tables").path("pizza_default_ingredient"))
+            if (link.path("pizza_id").asLong() == id
+                && link.path("ingredient_id").equals(row.path("ingredient_id"))) {
+              ingredient.put("selected", true);
+              origins.addObject().put("table", "pizza_default_ingredient").set("properties", link);
+            }
+      }
+      return JsonFiles.JSON.valueToTree(
+          Map.of(
+              "state",
+              result,
+              "catalog",
+              itemPreview.request("items", "GET", null),
+              "details",
+              details,
+              "recipe",
+              recipe,
+              "productRevision",
+              "preview"));
+    }
     result
         .putArray("warnings")
         .add("Preview only — fictional sample catalogue; saving is disabled.");

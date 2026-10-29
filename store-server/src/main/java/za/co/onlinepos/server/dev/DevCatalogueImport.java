@@ -1,5 +1,6 @@
 package za.co.onlinepos.server.dev;
 
+import java.util.List;
 import java.util.Map;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -51,6 +52,14 @@ public class DevCatalogueImport {
                     new org.springframework.core.io.ClassPathResource(
                         "db/h2-migration/V9__nested_categories.sql"))
                 .populate(reference);
+            new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
+                    new org.springframework.core.io.ClassPathResource(
+                        "db/h2-migration/V11__generic_item_recipe.sql"))
+                .populate(reference);
+            new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
+                    new org.springframework.core.io.ClassPathResource(
+                        "db/h2-migration/V12__product_recipe_overrides.sql"))
+                .populate(reference);
             var tempJdbc =
                 new org.springframework.jdbc.core.JdbcTemplate(
                     new org.springframework.jdbc.datasource.SingleConnectionDataSource(
@@ -59,6 +68,8 @@ public class DevCatalogueImport {
                 new DevCatalogueRepository(new DevModuleStore(tempJdbc, store.json, store.tx));
             for (String table :
                 repository.schema().properties().stream().map(Map.Entry::getKey).toList()) {
+              if (List.of("menu_item_ingredient", "burger_item_component_override").contains(table)
+                  && !seed.path("tables").has(table)) continue;
               if (!seed.path("tables").has(table))
                 throw new IllegalStateException("Incomplete catalogue seed");
               for (var row : seed.path("tables").path(table)) temporary.insert(table, row);

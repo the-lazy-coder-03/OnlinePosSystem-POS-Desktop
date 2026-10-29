@@ -77,7 +77,8 @@ public class FoundationSecurity {
                       .permitAll()
                       .requestMatchers(HttpMethod.GET, "/api/local/health")
                       .permitAll()
-                      .requestMatchers(HttpMethod.GET, "/api/local/setup/bootstrap")
+                      .requestMatchers(
+                          HttpMethod.GET, "/api/local/setup/bootstrap", "/api/local/setup/store")
                       .permitAll()
                       .requestMatchers(
                           HttpMethod.POST,

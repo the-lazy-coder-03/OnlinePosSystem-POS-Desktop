@@ -21,6 +21,7 @@ class DevGateway extends ModuleGateway {
     final int status;
     final String field;
     final String code;
+    String section = "";
 
     Failure(int status, String field, String code, String message) {
       super(message);
@@ -95,7 +96,14 @@ class DevGateway extends ModuleGateway {
               case "VALIDATION" -> "Check the highlighted field.";
               default -> "The backend did not confirm this operation. Your edits are retained.";
             };
-        throw new Failure(response.statusCode(), body.path("field").asText(), code, message);
+        var failure =
+            new Failure(
+                response.statusCode(),
+                body.path("field").asText(),
+                code,
+                code.equals("PRODUCT_VALIDATION") ? body.path("message").asText() : message);
+        failure.section = body.path("section").asText();
+        throw failure;
       }
       return body;
     } finally {
@@ -107,7 +115,8 @@ class DevGateway extends ModuleGateway {
     try {
       return call("/grid/" + path, method, value);
     } catch (Failure refused) {
-      throw new za.co.onlinepos.installation.TrustedStoreClient.ModuleFailure(refused.status);
+      throw new za.co.onlinepos.installation.TrustedStoreClient.ModuleFailure(
+          refused.status, refused.section, refused.field, refused.getMessage());
     }
   }
 

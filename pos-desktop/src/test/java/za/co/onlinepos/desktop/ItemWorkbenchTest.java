@@ -105,7 +105,7 @@ class ItemWorkbenchTest {
   }
 
   @Test
-  void stagedRecipeEditsSurviveConnectionFailureAndRetryIdenticalCommand() throws Exception {
+  void stagedExtraPriceEditsSurviveConnectionFailureAndRetryIdenticalCommand() throws Exception {
     var gateway = new Gateway();
     try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
       var panel = fx(() -> new ItemWorkbench(gateway, executor, "test"));
@@ -119,17 +119,19 @@ class ItemWorkbenchTest {
                 if (choices.getItems().get(i).toString().equals("Sample burger"))
                   choices.getSelectionModel().select(i);
               assertEquals(5, ((TabPane) panel.lookup("#item-tabs")).getTabs().size());
+              ((TabPane) panel.lookup("#item-tabs")).getSelectionModel().select(1);
               Platform.runLater(
                   () -> {
                     panel.applyCss();
                     panel.layout();
-                    panel.lookupAll(".button").stream()
-                        .filter(Button.class::isInstance)
-                        .map(Button.class::cast)
-                        .filter(b -> b.getText().equals("Edit"))
-                        .findFirst()
-                        .orElseThrow()
-                        .fire();
+                    ((TabPane) panel.lookup("#item-tabs"))
+                        .getTabs().get(1).getContent().lookupAll(".button").stream()
+                            .filter(Button.class::isInstance)
+                            .map(Button.class::cast)
+                            .filter(b -> b.getText().equals("Override"))
+                            .findFirst()
+                            .orElseThrow()
+                            .fire();
                   });
               return null;
             });

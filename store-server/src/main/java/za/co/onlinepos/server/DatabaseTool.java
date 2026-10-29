@@ -31,6 +31,13 @@ public final class DatabaseTool {
   private DatabaseTool() {}
 
   public static void migrate(DataSource owner, LocalDatabase.Identity identity) {
+    migrate(owner, identity, null);
+  }
+
+  public static void migrate(
+      DataSource owner,
+      LocalDatabase.Identity identity,
+      za.co.onlinepos.installation.StoreProfile profile) {
     var jdbc = new JdbcTemplate(owner);
     if (!"pos_owner".equals(jdbc.queryForObject("SELECT current_user", String.class)))
       throw new IllegalStateException("Migration owner required");
@@ -60,6 +67,13 @@ public final class DatabaseTool {
                     identity.branchId(),
                     identity.clusterId(),
                     identity.installationId());
+                if (profile != null)
+                  jdbc.update(
+                      "UPDATE pos.store_identity SET store_name=?,business_name=?,store_code=? WHERE branch_id=?",
+                      profile.storeName(),
+                      profile.businessName(),
+                      profile.code(),
+                      identity.branchId());
                 jdbc.update(
                     "INSERT INTO pos.stream_head(branch_id) VALUES (?)", identity.branchId());
               }
@@ -233,7 +247,16 @@ public final class DatabaseTool {
                 required("POS_DB_OWNER_PASSWORD"));
       }
       switch (operation) {
-        case "migrate" -> migrate(owner, identity);
+        case "migrate" -> {
+          var profile =
+              windows
+                  ? new FileInstallationRepository(InstalledConfiguration.dataRoot())
+                      .load()
+                      .orElseThrow()
+                      .storeProfile()
+                  : null;
+          migrate(owner, identity, profile);
+        }
         case "authorize" -> {
           /* Local management authentication above; no database mutation. */
         }

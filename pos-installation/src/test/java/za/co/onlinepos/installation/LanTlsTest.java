@@ -29,12 +29,18 @@ class LanTlsTest {
     final HttpsServer server;
     final TerminalRegistry registry;
     final String origin;
+    volatile boolean legacyMetadata;
 
     Server(Path root, List<String> names) throws Exception {
       this(root, names, "127.0.0.1");
     }
 
     Server(Path root, List<String> names, String address) throws Exception {
+      this(root, names, address, 1, null);
+    }
+
+    Server(Path root, List<String> names, String address, int branch, StoreProfile profile)
+        throws Exception {
       var secrets = new LanEnrolmentTest.Secrets();
       var caKey = Certificates.keyPair();
       var ca =
@@ -48,10 +54,11 @@ class LanTlsTest {
               UUID.randomUUID(),
               UUID.randomUUID(),
               UUID.randomUUID(),
-              1,
+              branch,
               InstallationRole.MASTER,
               "Master",
-              "INSTALLED");
+              "INSTALLED",
+              profile);
       registry = new TerminalRegistry(root, Clock.systemUTC(), identity, secrets);
       var key = Certificates.keyPair();
       var cert =
@@ -88,6 +95,17 @@ class LanTlsTest {
               Object result =
                   switch (exchange.getRequestURI().getPath()) {
                     case "/api/local/setup/bootstrap" -> registry.bootstrap();
+                    case "/api/local/setup/store" -> {
+                      if (legacyMetadata)
+                        throw new SecurityException("Legacy endpoint unavailable");
+                      yield java.util.Map.of(
+                          "branchId",
+                          identity.branchId(),
+                          "clusterId",
+                          identity.clusterId(),
+                          "profile",
+                          profile == null ? java.util.Map.of() : profile);
+                    }
                     case "/api/local/setup/challenge" ->
                         registry.challenge(
                             JsonFiles.JSON.readValue(
@@ -104,7 +122,7 @@ class LanTlsTest {
                       yield new Pairing.Identity(
                           identity.installationId(),
                           identity.clusterId(),
-                          1,
+                          identity.branchId(),
                           "MASTER",
                           "INSTALLED");
                     }
@@ -171,6 +189,63 @@ class LanTlsTest {
       assertEquals(1, closed.get());
       assertEquals(
           pin, JsonFiles.JSON.readValue(secrets.get("pairing-trust"), Pairing.Invitation.class));
+    }
+  }
+
+  @Test
+  void guidedSelectionReadsArbitraryStoreAndRejectsChangedIdentityWithoutReplacingTrust()
+      throws Exception {
+    String address =
+        java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces()).stream()
+            .flatMap(n -> java.util.Collections.list(n.getInetAddresses()).stream())
+            .map(java.net.InetAddress::getHostAddress)
+            .filter(LanPolicy::privateAddress)
+            .findFirst()
+            .orElse(null);
+    org.junit.jupiter.api.Assumptions.assumeTrue(
+        address != null, "Private IPv4 interface required");
+    var network = new LanPolicy("test", "Test LAN", address, 24);
+    var profile = new StoreProfile("Harbour Pizza", "Harbour Company", "HARBOUR");
+    var client = new LanEnrolmentTest.Secrets();
+    try (var server = new Server(root.resolve("guided"), List.of(address), address, 987, profile)) {
+      var selected = LanPairingClient.inspect(server.origin, network);
+      assertEquals(987, selected.branchId());
+      assertEquals(profile, selected.profile());
+      server.legacyMetadata = true;
+      assertEquals(null, LanPairingClient.inspect(server.origin, network).profile());
+      server.legacyMetadata = false;
+      var terminal = UUID.randomUUID();
+      var connected = LanPairingClient.connectSelected(selected, terminal, "Till", client);
+      assertEquals(987, connected.branchId());
+      assertEquals(connected, LanPairingClient.connectSelected(selected, terminal, "Till", client));
+      byte[] pinned = client.get("pairing-trust");
+      var changed =
+          new MasterSelection(
+              selected.origin(), 987, UUID.randomUUID(), selected.caFingerprint(), profile);
+      assertThrows(
+          SecurityException.class,
+          () -> LanPairingClient.connectSelected(changed, terminal, "Till", client));
+      assertArrayEquals(pinned, client.get("pairing-trust"));
+      try (var replacement =
+          new Server(root.resolve("guided-replacement"), List.of(address), address, 987, profile)) {
+        var moved =
+            new MasterSelection(
+                replacement.origin,
+                selected.branchId(),
+                selected.clusterId(),
+                selected.caFingerprint(),
+                profile);
+        assertThrows(
+            Exception.class,
+            () ->
+                LanPairingClient.connectSelected(
+                    moved, UUID.randomUUID(), "Other till", new LanEnrolmentTest.Secrets()));
+      }
+      assertThrows(
+          SecurityException.class,
+          () ->
+              LanPairingClient.inspect(
+                  server.origin, new LanPolicy("other", "Other LAN", "10.1.2.3", 24)));
     }
   }
 

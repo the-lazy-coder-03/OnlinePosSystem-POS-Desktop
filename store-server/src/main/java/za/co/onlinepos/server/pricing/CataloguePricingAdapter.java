@@ -150,26 +150,27 @@ public final class CataloguePricingAdapter {
         menuPrices.put(sourceId, id);
         var item = find(tables, "menu_item", "id", sourceId);
         category = "menu:" + key(item, "category_id");
-        var assignment = find(tables, "burger_recipe_assignment", "burger_id", sourceId);
-        String recipe = key(assignment, "recipe_id");
-        var recipeRow = find(tables, "burger_recipe", "recipe_id", recipe);
-        if (active(recipeRow))
-          for (var component : rows(tables, "burger_recipe_component"))
-            if (key(component, "recipe_id").equals(recipe))
-              add(
-                  defaults,
-                  extras,
-                  "burger:" + key(component, "component_id"),
-                  1,
-                  component.path("is_removable").asBoolean());
-        for (var component : rows(tables, "burger_item_default_component"))
-          if (key(component, "burger_id").equals(sourceId))
+        for (var link : rows(tables, "menu_item_ingredient"))
+          if (key(link, "menu_item_id").equals(sourceId)) {
+            String ingredientKey = "ingredient:" + key(link, "ingredient_id");
             add(
                 defaults,
                 extras,
-                "burger:" + key(component, "component_id"),
-                1,
-                component.path("is_removable").asBoolean());
+                ingredientKey,
+                link.path("default_qty").asInt(1),
+                link.path("is_removable").asBoolean(true));
+          }
+        var assignment = find(tables, "burger_recipe_assignment", "burger_id", sourceId);
+        String recipe = key(assignment, "recipe_id");
+        for (var component :
+            za.co.onlinepos.server.recipes.BurgerRecipes.effective(
+                tables, Long.parseLong(sourceId)))
+          add(
+              defaults,
+              extras,
+              "burger:" + key(component, "component_id"),
+              1,
+              component.path("is_removable").asBoolean());
         var proteins =
             defaults.keySet().stream()
                 .filter(

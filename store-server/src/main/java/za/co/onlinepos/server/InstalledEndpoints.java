@@ -62,6 +62,33 @@ public class InstalledEndpoints {
     return registry.bootstrap();
   }
 
+  @GetMapping("/api/local/setup/store")
+  public Map<String, Object> setupStore() throws Exception {
+    registry.bootstrap(); // Same active-main-computer requirement as bootstrap.
+    var rows =
+        jdbc.queryForList(
+            "SELECT store_name,business_name,store_code FROM pos.store_identity WHERE branch_id=?",
+            identity.branchId());
+    var profile = identity.storeProfile();
+    if (!rows.isEmpty()) {
+      var row = rows.getFirst();
+      if (row.get("store_name") instanceof String name
+          && !name.isBlank()
+          && row.get("business_name") instanceof String business
+          && !business.isBlank()
+          && row.get("store_code") instanceof String code
+          && !code.isBlank())
+        profile = new za.co.onlinepos.installation.StoreProfile(name, business, code);
+    }
+    return Map.of(
+        "clusterId",
+        identity.clusterId(),
+        "branchId",
+        identity.branchId(),
+        "profile",
+        profile == null ? Map.of() : profile);
+  }
+
   @PostMapping("/api/local/setup/challenge")
   public Pairing.Challenge challenge(@RequestBody Pairing.JoinRequest request) throws Exception {
     try {

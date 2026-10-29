@@ -283,7 +283,11 @@ class ModuleHomeTest {
                                 .getItems()
                                 .size()
                             == 3);
-          if (module == PosModule.CATALOGUE) await(() -> home.lookup("#catalogue-list") != null);
+          if (module == PosModule.CATALOGUE)
+            await(
+                () ->
+                    home.lookup("#product-list") != null
+                        && !home.lookup("#product-list").isDisabled());
           fx(
               () -> {
                 ((Button) home.lookup("#home-lock")).fire();
@@ -465,14 +469,20 @@ class ModuleHomeTest {
         fx(
             () -> {
               var wizard = (SetupWizard) shell.getCenter();
-              wizard.verifySmokeScenario();
+              ((javafx.scene.control.RadioButton) wizard.lookup("#setup-main")).fire();
+              ((Button) wizard.lookup("#setup-next")).fire();
+              ((javafx.scene.control.TextField) wizard.lookup("#setup-store-name"))
+                  .setText("Oak Street Pizza");
+              return null;
+            });
+        fx(
+            () -> {
+              var wizard = (SetupWizard) shell.getCenter();
+              ((Button) wizard.lookup("#setup-next")).fire();
               shell.applyCss();
               shell.layout();
-              ((javafx.scene.control.TextField) wizard.lookup("#master-lan-ip"))
-                  .setText("192.168.1.20");
-              assertTrue(
-                  wizard.lookupAll(".password-field").stream()
-                      .noneMatch(javafx.scene.Node::isVisible));
+              ((javafx.scene.control.PasswordField) wizard.lookup("#setup-password"))
+                  .setText("test-password");
               ((Button) wizard.lookup("#setup-connect")).fire();
               return null;
             });

@@ -68,13 +68,17 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
       java.util.function.LongSupplier clock) {
     this.clock = clock;
     this.gateway = gateway;
-    this.storeLabel = "Store " + installation.branchId() + " · " + installation.terminalName();
+    this.storeLabel =
+        (installation.storeProfile() == null
+                ? "Store " + installation.branchId()
+                : installation.storeProfile().storeName())
+            + " · "
+            + installation.terminalName();
     this.executor = executor;
     getStyleClass().add("module-home");
     var title = new Label("OnlinePOS");
     title.getStyleClass().add("home-title");
-    var identity =
-        new Label("Store " + installation.branchId() + " · " + installation.terminalName());
+    var identity = new Label(storeLabel);
     masterAddress.setId("master-lan-address");
     masterAddress.setVisible(
         installation.role() == za.co.onlinepos.contracts.InstallationRole.MASTER

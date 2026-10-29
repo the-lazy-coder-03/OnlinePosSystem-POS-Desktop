@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import org.junit.jupiter.api.BeforeEach;
@@ -1242,7 +1243,7 @@ class LocalPostgresIT {
                 "INSERT INTO pos.local_customer(customer_id,branch_id,display_name) VALUES (?,2,'wrong branch')",
                 UUID.randomUUID()));
     assertEquals(
-        "16",
+        "18",
         ADMIN.queryForObject(
             "SELECT version FROM public.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
             String.class));
@@ -2155,6 +2156,43 @@ class LocalPostgresIT {
     }
   }
 
+  @Test
+  void guidedSetupProfilesAreCreatedAtomicallyAndNeverOverwriteAnExistingStore() {
+    var identity = new LocalDatabase.Identity(123, UUID.randomUUID(), UUID.randomUUID());
+    var profile =
+        new za.co.onlinepos.installation.StoreProfile(
+            "Oak Street Pizza", "Pizza Company", "STORE-OAK");
+    try {
+      truncateAuditFixtures("TRUNCATE pos.store_identity CASCADE");
+      DatabaseTool.migrate(OWNER, identity, profile);
+      var original =
+          ADMIN.queryForMap(
+              "SELECT branch_id,cluster_id,installation_id,store_uuid,business_id,store_name,business_name,store_code FROM pos.store_identity");
+      assertEquals(123, ((Number) original.get("branch_id")).intValue());
+      assertEquals("Oak Street Pizza", original.get("store_name"));
+      assertEquals("Pizza Company", original.get("business_name"));
+      assertEquals("STORE-OAK", original.get("store_code"));
+      DatabaseTool.migrate(OWNER, identity, profile);
+      DatabaseTool.migrate(
+          OWNER,
+          identity,
+          new za.co.onlinepos.installation.StoreProfile("Other name", "Other business", "OTHER"));
+      assertEquals(
+          original,
+          ADMIN.queryForMap(
+              "SELECT branch_id,cluster_id,installation_id,store_uuid,business_id,store_name,business_name,store_code FROM pos.store_identity"));
+      assertEquals(
+          1,
+          ADMIN.queryForObject(
+              "SELECT count(*) FROM pos.stream_head WHERE branch_id=123", Integer.class));
+      assertThrows(
+          IllegalStateException.class, () -> DatabaseTool.migrate(OWNER, IDENTITY, profile));
+    } finally {
+      truncateAuditFixtures("TRUNCATE pos.store_identity CASCADE");
+      DatabaseTool.migrate(OWNER, IDENTITY);
+    }
+  }
+
   private void provisionPin(String username, String pin) {
     za.co.onlinepos.server.local.RbacProvisioning.apply(
         OWNER, IDENTITY, "set-pin", username, java.util.Set.of(), pin.toCharArray(), PIN_KEY);
@@ -2816,6 +2854,347 @@ class LocalPostgresIT {
   }
 
   @Autowired za.co.onlinepos.server.catalogue.CatalogueManagementService editor;
+
+  @Test
+  void productBurgerOverridesStaySparseAcrossExplicitSharedEdits() throws Exception {
+    String access = catalogueEditor();
+    var state = editor.state(access, TERMINAL);
+    long burger = state.path("tables").path("menu_item").get(0).path("id").asLong();
+    var product = new za.co.onlinepos.contracts.Recipes.Product("menu_item", burger);
+    var recipe = za.co.onlinepos.server.recipes.RecipePlanner.view(state, product, "burger");
+    var selected = new java.util.ArrayList<String>();
+    recipe
+        .path("ingredients")
+        .forEach(
+            c -> {
+              if (c.path("selected").asBoolean()) selected.add(c.path("key").asText());
+            });
+    String key = selected.stream().filter(k -> k.startsWith("burger:")).findFirst().orElseThrow();
+    var save =
+        new za.co.onlinepos.contracts.ProductEdits.Save(
+            UUID.randomUUID(),
+            state.path("revision").asLong(),
+            za.co.onlinepos.server.catalogue.ProductPlanner.revision(state, "menu_item", burger),
+            "menu_item",
+            burger,
+            List.of(),
+            new za.co.onlinepos.contracts.ProductEdits.Recipe(
+                "burger", selected, Map.of(key, Map.of("is_removable", false)), List.of()),
+            List.of());
+    editor.saveProduct(access, TERMINAL, save);
+    var overrides =
+        editor.state(access, TERMINAL).path("tables").path("burger_item_component_override");
+    assertEquals(1, overrides.size());
+    assertTrue(overrides.get(0).path("sort_order").isNull());
+    assertFalse(overrides.get(0).path("is_removable").asBoolean());
+    var current = editor.state(access, TERMINAL);
+    var shared =
+        new za.co.onlinepos.contracts.Recipes.Save(
+            UUID.randomUUID(),
+            current.path("revision").asLong(),
+            product,
+            "burger",
+            selected,
+            Map.of(key, Map.of("sort_order", 9)),
+            true);
+    editor.edit(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+            shared.commandId(), shared.expectedRevision(), List.of(), true, shared, null, true));
+    assertEquals(
+        overrides,
+        editor.state(access, TERMINAL).path("tables").path("burger_item_component_override"));
+    var priced = itemCustomization.state(access, TERMINAL);
+    assertTrue(
+        priced.products().values().stream()
+            .filter(p -> p.category().startsWith("menu:"))
+            .flatMap(p -> p.extras().stream())
+            .anyMatch(e -> e.key().equals(key) && !e.removable()));
+    current = editor.state(access, TERMINAL);
+    editor.saveProduct(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.ProductEdits.Save(
+            UUID.randomUUID(),
+            current.path("revision").asLong(),
+            za.co.onlinepos.server.catalogue.ProductPlanner.revision(current, "menu_item", burger),
+            "menu_item",
+            burger,
+            List.of(),
+            new za.co.onlinepos.contracts.ProductEdits.Recipe(
+                "burger", selected, Map.of(), List.of(key)),
+            List.of()));
+    assertEquals(
+        0,
+        editor
+            .state(access, TERMINAL)
+            .path("tables")
+            .path("burger_item_component_override")
+            .size());
+  }
+
+  @Test
+  void aggregateProductSaveIsAtomicIdempotentAndUsesRuntimePermissions() throws Exception {
+    String access = catalogueEditor();
+    var state = editor.state(access, TERMINAL);
+    long category = state.path("tables").path("menu_category").get(0).path("id").asLong();
+    long priceCategory =
+        state.path("tables").path("price_category").get(0).path("price_category_id").asLong();
+    var changes =
+        List.of(
+            new za.co.onlinepos.contracts.CatalogueManagement.Change(
+                "menu_item",
+                null,
+                Map.of(
+                    "id",
+                    -1,
+                    "category_id",
+                    category,
+                    "name",
+                    "Atomic POS product",
+                    "description",
+                    "Local draft",
+                    "sort_order",
+                    0,
+                    "active",
+                    true,
+                    "is_300ml",
+                    false,
+                    "is_2l",
+                    false),
+                false),
+            new za.co.onlinepos.contracts.CatalogueManagement.Change(
+                "ingredient",
+                null,
+                Map.of(
+                    "ingredient_id",
+                    -2,
+                    "name",
+                    "Atomic POS ingredient",
+                    "price_category_id",
+                    priceCategory,
+                    "active",
+                    true,
+                    "seasonal",
+                    false),
+                false),
+            new za.co.onlinepos.contracts.CatalogueManagement.Change(
+                "branch_menu_item_price",
+                null,
+                Map.of("branch_id", 1, "menu_item_id", -1, "price", new BigDecimal("83.50")),
+                false));
+    var command =
+        new za.co.onlinepos.contracts.ProductEdits.Save(
+            UUID.randomUUID(),
+            state.path("revision").asLong(),
+            "new",
+            "menu_item",
+            -1,
+            changes,
+            new za.co.onlinepos.contracts.ProductEdits.Recipe(
+                "ingredient",
+                List.of("ingredient:-2"),
+                Map.of("ingredient:-2", Map.of("default_qty", 3)),
+                List.of()),
+            List.of());
+    ADMIN.execute(
+        "CREATE FUNCTION pos.reject_product_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'product audit failure'; END $$");
+    ADMIN.execute(
+        "CREATE TRIGGER reject_product_event BEFORE INSERT ON pos.outbox_event FOR EACH ROW EXECUTE FUNCTION pos.reject_product_event()");
+    try {
+      assertThrows(
+          org.springframework.dao.DataAccessException.class,
+          () -> editor.saveProduct(access, TERMINAL, command));
+      assertEquals(state, editor.state(access, TERMINAL));
+    } finally {
+      ADMIN.execute("DROP TRIGGER reject_product_event ON pos.outbox_event");
+      ADMIN.execute("DROP FUNCTION pos.reject_product_event()");
+    }
+    var result = editor.saveProduct(access, TERMINAL, command);
+    assertEquals(result, editor.saveProduct(access, TERMINAL, command));
+    long id = result.path("product").path("id").asLong();
+    var aggregate = editor.product(access, TERMINAL, "menu_item", id);
+    assertEquals("Atomic POS product", aggregate.path("details").path("name").asText());
+    assertEquals(
+        1,
+        java.util.stream.StreamSupport.stream(
+                aggregate.path("recipe").path("ingredients").spliterator(), false)
+            .filter(c -> c.path("selected").asBoolean())
+            .count());
+    http.perform(
+            get("/api/local/catalogue/products/menu_item/" + id)
+                .header("Authorization", "Bearer " + access)
+                .header("X-POS-Terminal", TERMINAL))
+        .andExpect(status().isOk());
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/catalogue/products")
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(command)))
+        .andExpect(status().isUnauthorized());
+    var stale =
+        new za.co.onlinepos.contracts.ProductEdits.Save(
+            UUID.randomUUID(),
+            command.expectedRevision(),
+            "new",
+            "menu_item",
+            -1,
+            changes,
+            command.recipe(),
+            List.of());
+    assertEquals(
+        409,
+        assertThrows(LocalFailure.class, () -> editor.saveProduct(access, TERMINAL, stale))
+            .status());
+  }
+
+  @Test
+  void bulkRecipesPreserveLinksRetryAndRollbackAtRuntimeBoundary() throws Exception {
+    String access = catalogueEditor();
+    var initial = editor.state(access, TERMINAL);
+    var ingredientValues = catalogueValues(initial.path("tables").path("ingredient").get(0));
+    ingredientValues.put("name", "Bulk second ingredient");
+    editor.edit(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+            UUID.randomUUID(),
+            initial.path("revision").asLong(),
+            List.of(
+                new za.co.onlinepos.contracts.CatalogueManagement.Change(
+                    "ingredient", null, ingredientValues, false)),
+            false));
+    var state = editor.state(access, TERMINAL);
+    var product =
+        new za.co.onlinepos.contracts.Recipes.Product(
+            "pizza", state.path("tables").path("pizza").get(0).path("pizza_id").asLong());
+    var view = za.co.onlinepos.server.recipes.RecipePlanner.view(state, product, null);
+    var selected = new java.util.ArrayList<String>();
+    view.path("ingredients")
+        .forEach(
+            r -> {
+              if (r.path("selected").asBoolean()) selected.add(r.path("key").asText());
+            });
+    var available =
+        java.util.stream.StreamSupport.stream(view.path("ingredients").spliterator(), false)
+            .filter(r -> r.path("available").asBoolean() && !r.path("selected").asBoolean())
+            .findFirst()
+            .orElseThrow();
+    selected.add(available.path("key").asText());
+    var request =
+        new za.co.onlinepos.contracts.Recipes.Save(
+            UUID.randomUUID(),
+            state.path("revision").asLong(),
+            product,
+            "ingredient",
+            selected,
+            Map.of(available.path("key").asText(), Map.of("default_qty", 2)),
+            false);
+    var command =
+        new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+            request.commandId(), request.expectedRevision(), List.of(), false, request);
+    var result = editor.edit(access, TERMINAL, command);
+    assertEquals(result, editor.edit(access, TERMINAL, command));
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                    "/api/local/catalogue/recipes/pizza/" + product.id())
+                .header("Authorization", "Bearer " + access)
+                .header("X-POS-Terminal", TERMINAL))
+        .andExpect(status().isOk());
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/catalogue/recipes")
+                .header("Authorization", "Bearer " + access)
+                .header("X-POS-Terminal", TERMINAL)
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(request)))
+        .andExpect(status().isOk());
+    var after =
+        za.co.onlinepos.server.recipes.RecipePlanner.view(
+            editor.state(access, TERMINAL), product, null);
+    assertEquals(
+        selected.size(),
+        java.util.stream.StreamSupport.stream(after.path("ingredients").spliterator(), false)
+            .filter(r -> r.path("selected").asBoolean())
+            .count());
+    long revision = editor.state(access, TERMINAL).path("revision").asLong();
+    var clear =
+        new za.co.onlinepos.contracts.Recipes.Save(
+            UUID.randomUUID(), revision, product, "ingredient", List.of(), Map.of(), false);
+    ADMIN.execute(
+        "CREATE FUNCTION pos.reject_recipe_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic recipe outbox failure'; END $$");
+    ADMIN.execute(
+        "CREATE TRIGGER reject_recipe_event BEFORE INSERT ON pos.outbox_event FOR EACH ROW EXECUTE FUNCTION pos.reject_recipe_event()");
+    try {
+      assertThrows(
+          org.springframework.dao.DataAccessException.class,
+          () ->
+              editor.edit(
+                  access,
+                  TERMINAL,
+                  new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+                      clear.commandId(), revision, List.of(), false, clear)));
+    } finally {
+      ADMIN.execute("DROP TRIGGER reject_recipe_event ON pos.outbox_event");
+      ADMIN.execute("DROP FUNCTION pos.reject_recipe_event()");
+    }
+    assertEquals(revision, editor.state(access, TERMINAL).path("revision").asLong());
+    assertEquals(
+        after,
+        za.co.onlinepos.server.recipes.RecipePlanner.view(
+            editor.state(access, TERMINAL), product, null));
+    http.perform(
+            org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                    "/api/local/catalogue/recipes")
+                .contentType("application/json")
+                .content(json.writeValueAsBytes(clear)))
+        .andExpect(status().isUnauthorized());
+    var current = editor.state(access, TERMINAL);
+    var menu = current.path("tables").path("menu_item").get(0);
+    var genericProduct =
+        new za.co.onlinepos.contracts.Recipes.Product("menu_item", menu.path("id").asLong());
+    var genericView =
+        za.co.onlinepos.server.recipes.RecipePlanner.view(current, genericProduct, "ingredient");
+    var genericSelected = new java.util.ArrayList<String>();
+    genericView
+        .path("ingredients")
+        .forEach(
+            r -> {
+              if (r.path("selected").asBoolean()) genericSelected.add(r.path("key").asText());
+            });
+    String genericKey = available.path("key").asText();
+    if (!genericSelected.contains(genericKey)) genericSelected.add(genericKey);
+    var genericSave =
+        new za.co.onlinepos.contracts.Recipes.Save(
+            UUID.randomUUID(),
+            current.path("revision").asLong(),
+            genericProduct,
+            "ingredient",
+            genericSelected,
+            Map.of(),
+            false);
+    editor.edit(
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+            genericSave.commandId(),
+            genericSave.expectedRevision(),
+            List.of(),
+            false,
+            genericSave));
+    assertEquals(
+        1,
+        runtime.queryForObject(
+            "SELECT count(*) FROM pos.catalogue_record WHERE source_type='menu_item_ingredient'",
+            Integer.class));
+    assertTrue(
+        itemCustomization.state(access, TERMINAL).products().values().stream()
+            .anyMatch(
+                p ->
+                    p.extras().stream()
+                        .anyMatch(e -> e.key().equals(genericKey) && e.included() == 1)));
+  }
 
   private String catalogueEditor() throws Exception {
     emptyCatalogue();
@@ -3843,8 +4222,33 @@ class LocalPostgresIT {
     var category = state.path("tables").path("menu_category").get(0);
     var values = new java.util.LinkedHashMap<>(catalogueValues(category));
     values.put("archived", true);
+    assertEquals(
+        400,
+        assertThrows(
+                LocalFailure.class,
+                () ->
+                    editor.edit(
+                        access,
+                        TERMINAL,
+                        catalogueEdit(access, "menu_category", category, values, false, false)))
+            .status());
+    var changes = new java.util.ArrayList<za.co.onlinepos.contracts.CatalogueManagement.Change>();
+    for (var product : state.path("tables").path("menu_item"))
+      if (product.path("category_id").equals(category.path("id"))) {
+        var itemValues = new java.util.LinkedHashMap<>(catalogueValues(product));
+        itemValues.put("active", false);
+        changes.add(
+            new za.co.onlinepos.contracts.CatalogueManagement.Change(
+                "menu_item", List.of(product.path("id").asLong()), itemValues, false));
+      }
+    changes.add(
+        new za.co.onlinepos.contracts.CatalogueManagement.Change(
+            "menu_category", List.of(category.path("id").asLong()), values, false));
     editor.edit(
-        access, TERMINAL, catalogueEdit(access, "menu_category", category, values, false, false));
+        access,
+        TERMINAL,
+        new za.co.onlinepos.contracts.CatalogueManagement.Edit(
+            UUID.randomUUID(), state.path("revision").asLong(), changes, false));
     var updated = editor.state(access, TERMINAL).path("tables").path("menu_category");
     var archived =
         java.util.stream.StreamSupport.stream(updated.spliterator(), false)

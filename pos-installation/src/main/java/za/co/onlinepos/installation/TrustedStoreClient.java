@@ -296,17 +296,48 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
               ? HttpRequest.BodyPublishers.noBody()
               : HttpRequest.BodyPublishers.ofByteArray(body));
       var response = http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
-      if (response.statusCode() != 200) throw new ModuleFailure(response.statusCode());
+      if (response.statusCode() != 200) {
+        if (response.statusCode() == 400) {
+          try {
+            var error = JsonFiles.JSON.readTree(response.body());
+            if (error.path("code").asText().equals("PRODUCT_VALIDATION"))
+              throw new ModuleFailure(
+                  400,
+                  error.path("section").asText(),
+                  error.path("field").asText(),
+                  error.path("message").asText());
+          } catch (com.fasterxml.jackson.core.JacksonException ignored) {
+            /* Status remains authoritative. */
+          }
+        }
+        throw new ModuleFailure(response.statusCode());
+      }
       return response.body();
     }
   }
 
   public static final class ModuleFailure extends Exception {
     private final int status;
+    private final String section;
+    private final String field;
 
     public ModuleFailure(int status) {
-      super("Module request refused");
+      this(status, "", "", "Module request refused");
+    }
+
+    public ModuleFailure(int status, String section, String field, String message) {
+      super(message);
       this.status = status;
+      this.section = section;
+      this.field = field;
+    }
+
+    public String section() {
+      return section;
+    }
+
+    public String field() {
+      return field;
     }
 
     public int status() {

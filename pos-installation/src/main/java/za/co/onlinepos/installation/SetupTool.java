@@ -64,6 +64,7 @@ public final class SetupTool {
         try {
           SetupRequest request = envelope.request();
           var existing = repository.load();
+          Installation identity = SetupIdentity.resolve(existing, request);
           boolean slaveRepair =
               request.role() == InstallationRole.SLAVE
                   && (existing.isEmpty()
@@ -93,41 +94,6 @@ public final class SetupTool {
               new NetworkSettings(
                   oldNetwork.httpsPort(), oldNetwork.postgresPort(), selected.subnet()));
           NetworkSettings.load(root);
-          var previous = repository.load();
-          Installation identity =
-              previous.orElseGet(
-                  () ->
-                      new Installation(
-                          1,
-                          UUID.randomUUID(),
-                          UUID.randomUUID(),
-                          UUID.randomUUID(),
-                          request.branchId(),
-                          request.role(),
-                          request.terminalName(),
-                          "CONFIGURING"));
-          if (previous.isPresent()
-              && (identity.branchId() != request.branchId() || identity.role() != request.role())) {
-            if ((identity.role() == InstallationRole.BACKUP_MASTER
-                    && request.role() == InstallationRole.MASTER)
-                || identity.role() == InstallationRole.MASTER
-                || Files.exists(root.resolve("postgres-data"))
-                || Files.exists(root.resolve("pending-orders")))
-              throw new SecurityException(
-                  "Role change requires a separately verified data handover");
-            identity =
-                new Installation(
-                    1,
-                    identity.installationId(),
-                    request.role() == InstallationRole.MASTER
-                        ? UUID.randomUUID()
-                        : identity.clusterId(),
-                    identity.terminalId(),
-                    request.branchId(),
-                    request.role(),
-                    request.terminalName(),
-                    "CONFIGURING");
-          }
           repository.save(identity.withState("CONFIGURING"));
           if (request.role() == InstallationRole.MASTER
               && !Files.exists(root.resolve("secrets/ca-key.dpapi"))) {
@@ -182,12 +148,18 @@ public final class SetupTool {
               if (!selected.contains(request.masterAddress()))
                 throw new SecurityException("Master must be on the approved store subnet");
               reply =
-                  LanPairingClient.connect(
-                      request.masterAddress(),
-                      request.branchId(),
-                      identity.terminalId(),
-                      request.terminalName(),
-                      secrets);
+                  request.selectedMaster() != null
+                      ? LanPairingClient.connectSelected(
+                          request.selectedMaster(),
+                          identity.terminalId(),
+                          request.terminalName(),
+                          secrets)
+                      : LanPairingClient.connect(
+                          request.masterAddress(),
+                          request.branchId(),
+                          identity.terminalId(),
+                          request.terminalName(),
+                          secrets);
             } else {
               // Existing protected invitation tooling remains compatible during upgrades.
               var invitation =
@@ -233,10 +205,13 @@ public final class SetupTool {
                     identity.installationId(),
                     reply.clusterId(),
                     identity.terminalId(),
-                    identity.branchId(),
+                    reply.branchId(),
                     identity.role(),
                     request.terminalName(),
-                    "CONFIGURING");
+                    "CONFIGURING",
+                    request.selectedMaster() == null
+                        ? identity.storeProfile()
+                        : request.selectedMaster().profile());
             repository.save(identity);
           }
           System.out.println("PREPARED " + request.role().name());

@@ -13,7 +13,20 @@ public record Installation(
     int branchId,
     InstallationRole role,
     String terminalName,
-    String state) {
+    String state,
+    StoreProfile storeProfile) {
+  public Installation(
+      int version,
+      UUID installationId,
+      UUID clusterId,
+      UUID terminalId,
+      int branchId,
+      InstallationRole role,
+      String terminalName,
+      String state) {
+    this(version, installationId, clusterId, terminalId, branchId, role, terminalName, state, null);
+  }
+
   public Installation {
     if (version != 1) throw new IllegalArgumentException("Unsupported installation version");
     Objects.requireNonNull(installationId);
@@ -31,6 +44,14 @@ public record Installation(
 
   public Installation withState(String next) {
     return new Installation(
-        version, installationId, clusterId, terminalId, branchId, role, terminalName, next);
+        version,
+        installationId,
+        clusterId,
+        terminalId,
+        branchId,
+        role,
+        terminalName,
+        next,
+        storeProfile);
   }
 }

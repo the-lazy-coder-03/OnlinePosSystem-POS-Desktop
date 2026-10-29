@@ -2,6 +2,25 @@
 This independent repository contains the JavaFX terminal, Jakarta CDI/Weld desktop composition,
 a separate Spring Boot service, and Windows setup tooling. The operational cloud repository is untouched.
 
+## Launch the POS grid (persistent H2 development)
+
+Use JDK 25 and run:
+
+```sh
+cd /Users/matthewanton/IdeaProjects/OnlinePosSystem-POS-Desktop
+./scripts/run-dev-desktop.sh
+```
+
+The launcher builds the application, starts or verifies the local H2 backend, and opens the JavaFX grid. On first launch, complete the local store setup before the grid opens. Records persist between launches.
+
+After a successful build, launch without rebuilding:
+
+```sh
+./scripts/run-dev-desktop.sh --no-build
+```
+
+On Windows, run `scripts\run-dev-desktop.cmd` from the repository directory. See [H2 development](h2-development.md) for storage and configuration details.
+
 ## Development
 Use JDK 25:
 ```sh
@@ -48,3 +67,5 @@ a sidebar for Overview, Staff, Roles & Permissions and Audit History, with a sep
 for PIN management. Owner setup uses the protected console; new staff accounts use PIN-only access.
 
 Catalogue Management now supports local item, ingredient, recipe, size, price and option editing with explicit RBAC. See [Stage 5 catalogue management](../docs/stages/05-catalogue-management.md).
+
+See [product-first bulk recipe editing](bulk-recipes.md) for ingredient selection, shared burger changes, persistence and API details.

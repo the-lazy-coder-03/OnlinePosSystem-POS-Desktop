@@ -126,7 +126,14 @@ class GridModulesLiveTest {
             false),
         null);
     initial = gateway.catalogue("state", "GET", null, null);
-    long itemId = initial.path("tables").path("menu_item").get(0).path("id").asLong();
+    long itemId =
+        java.util.stream.StreamSupport.stream(
+                initial.path("tables").path("menu_item").spliterator(), false)
+            .filter(row -> row.path("name").asText().equals(fields.get("name")))
+            .findFirst()
+            .orElseThrow()
+            .path("id")
+            .asLong();
     gateway.catalogue(
         "records",
         "PUT",
@@ -215,7 +222,8 @@ class GridModulesLiveTest {
             });
         await(
             () ->
-                home.lookup("#catalogue-list") instanceof TableView<?> list
+                home.lookup("#product-list") instanceof javafx.scene.control.ListView<?> list
+                    && !list.isDisabled()
                     && !list.getItems().isEmpty());
         fx(
             () -> {
@@ -252,7 +260,8 @@ class GridModulesLiveTest {
                 .asInt());
         fx(
             () -> {
-              ((Button) home.lookup("#catalogue-customization")).fire();
+              ((Button) home.lookup("#home-lock")).fire();
+              ((Button) home.lookup("#module-SALES_ORDERS")).fire();
               return null;
             });
         await(
@@ -275,7 +284,7 @@ class GridModulesLiveTest {
                   products.getSelectionModel().select(i);
                   break;
                 }
-              ((TabPane) home.lookup("#item-tabs")).getSelectionModel().select(4);
+              ((TabPane) home.lookup("#item-tabs")).getSelectionModel().select(0);
               return null;
             });
         await(() -> home.lookup("#draft-find-customer") != null);

@@ -30,6 +30,34 @@ public final class SnapshotFormat {
   public SnapshotFormat(boolean management) {
     try (var input = getClass().getResourceAsStream("/catalogue-schema-v1.json")) {
       schema = json.readTree(input);
+      if (management) {
+        var generic =
+            (com.fasterxml.jackson.databind.node.ObjectNode)
+                schema.withObject("/menu_item_ingredient");
+        generic.putArray("keys").add("menu_item_id").add("ingredient_id");
+        var columns = generic.putObject("columns");
+        for (String col : List.of("menu_item_id", "ingredient_id", "default_qty", "sort_order"))
+          columns.putObject(col).put("type", "INT").put("required", true);
+        columns.putObject("is_removable").put("type", "BOOLEAN").put("required", true);
+        var refs = generic.putObject("references");
+        refs.putArray("menu_item_id").add("menu_item").add("id");
+        refs.putArray("ingredient_id").add("ingredient").add("ingredient_id");
+      }
+      if (management) {
+        var override =
+            (com.fasterxml.jackson.databind.node.ObjectNode)
+                schema.withObject("/burger_item_component_override");
+        override.putArray("keys").add("burger_id").add("component_id");
+        var columns = override.putObject("columns");
+        for (String c : List.of("burger_id", "component_id"))
+          columns.putObject(c).put("type", "INT").put("required", true);
+        columns.putObject("excluded").put("type", "BOOLEAN").put("required", true);
+        columns.putObject("is_removable").put("type", "BOOLEAN").put("required", false);
+        columns.putObject("sort_order").put("type", "INT").put("required", false);
+        var refs = override.putObject("references");
+        refs.putArray("burger_id").add("menu_item").add("id");
+        refs.putArray("component_id").add("burger_component").add("component_id");
+      }
       if (management)
         for (String category : List.of("menu_category", "pizza_category")) {
           ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path(category).path("columns"))
@@ -227,6 +255,23 @@ public final class SnapshotFormat {
           current = parents.get(current);
         }
       }
+    }
+    for (String table : List.of("menu_category", "pizza_category")) {
+      String key = table.equals("menu_category") ? "id" : "pizza_category_id";
+      String products = table.equals("menu_category") ? "menu_item" : "pizza";
+      String category = table.equals("menu_category") ? "category_id" : "pizza_category_id";
+      for (var row : rows(s, table))
+        if (row.path("archived").asBoolean()) {
+          if (rows(s, table).stream()
+                  .anyMatch(
+                      c ->
+                          c.path("parent_id").equals(row.path(key))
+                              && !c.path("archived").asBoolean())
+              || rows(s, products).stream()
+                  .anyMatch(
+                      p -> p.path(category).equals(row.path(key)) && p.path("active").asBoolean()))
+            bad("Move or archive products and child categories before archiving this category");
+        }
     }
     // Every nullable and non-nullable foreign key is checked before any write.
     for (String table : allowed)

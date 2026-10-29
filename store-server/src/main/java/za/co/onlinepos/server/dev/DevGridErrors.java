@@ -10,6 +10,22 @@ import za.co.onlinepos.contracts.ItemCustomization;
 @RestControllerAdvice(assignableTypes = DevGridEndpoints.class)
 @Profile("dev")
 public class DevGridErrors {
+  @ExceptionHandler(za.co.onlinepos.server.local.ProductDraftFailure.class)
+  ResponseEntity<java.util.Map<String, String>> product(
+      za.co.onlinepos.server.local.ProductDraftFailure failure) {
+    return ResponseEntity.badRequest()
+        .body(
+            java.util.Map.of(
+                "code",
+                "PRODUCT_VALIDATION",
+                "section",
+                failure.section(),
+                "field",
+                failure.field(),
+                "message",
+                failure.getMessage()));
+  }
+
   @ExceptionHandler(DevCategoryService.Failure.class)
   ResponseEntity<DevData.Error> failure(DevCategoryService.Failure failure) {
     return ResponseEntity.status(failure.status())

@@ -19,6 +19,7 @@ import za.co.onlinepos.server.local.CommandJournal;
 import za.co.onlinepos.server.local.LocalDatabase;
 import za.co.onlinepos.server.local.LocalFailure;
 import za.co.onlinepos.server.local.ModuleAccess;
+import za.co.onlinepos.server.local.ProductDraftFailure;
 import za.co.onlinepos.server.local.StaffService;
 
 /** Editable branch records are independent of the immutable Stage 4 import. */
@@ -49,9 +50,11 @@ public class CatalogueManagementService {
       Set.of(
           "pizza_allowed_size",
           "pizza_default_ingredient",
+          "menu_item_ingredient",
           "burger_recipe_component",
           "burger_recipe_assignment",
           "burger_item_default_component",
+          "burger_item_component_override",
           "menu_item_modifier_group",
           "modifier_option",
           "salad_ingredients",
@@ -66,8 +69,10 @@ public class CatalogueManagementService {
               List.of(
                   "burger_recipe_assignment",
                   "burger_item_default_component",
+                  "burger_item_component_override",
                   "menu_item_modifier_group",
-                  "salad_ingredients"),
+                  "salad_ingredients",
+                  "menu_item_ingredient"),
           "pizza", List.of("pizza_allowed_size", "pizza_default_ingredient"),
           "burger_recipe", List.of("burger_recipe_component"),
           "modifier_group", List.of("modifier_option"));
@@ -77,6 +82,7 @@ public class CatalogueManagementService {
   private final LocalDatabase.Identity identity;
   private final TransactionTemplate transactions;
   private final CatalogueImport importer;
+  private final za.co.onlinepos.server.local.ItemCustomizationService customization;
   private final SnapshotFormat format = new SnapshotFormat(true);
 
   public CatalogueManagementService(
@@ -85,13 +91,15 @@ public class CatalogueManagementService {
       ModuleAccess modules,
       LocalDatabase.Identity identity,
       TransactionTemplate transactions,
-      CatalogueImport importer) {
+      CatalogueImport importer,
+      za.co.onlinepos.server.local.ItemCustomizationService customization) {
     this.jdbc = jdbc;
     this.journal = journal;
     this.modules = modules;
     this.identity = identity;
     this.transactions = transactions;
     this.importer = importer;
+    this.customization = customization;
   }
 
   private ModuleAccess.Session require(String token, String terminal, boolean edit) {
@@ -118,20 +126,23 @@ public class CatalogueManagementService {
                   });
           var visible = new LinkedHashMap<>(tables);
           visible.keySet().removeIf(t -> t.equals("branch") || t.startsWith("special"));
-          return journal.tree(
-              Map.of(
-                  "revision",
-                  revision(),
-                  "branchId",
-                  identity.branchId(),
-                  "editable",
-                  session.permissions().contains("catalogue.manage"),
-                  "schema",
-                  schema,
-                  "tables",
-                  visible,
-                  "warnings",
-                  warnings(tables)));
+          return ProductPlanner.identities(
+              journal.tree(
+                  Map.of(
+                      "revision",
+                      revision(),
+                      "branchId",
+                      identity.branchId(),
+                      "editable",
+                      session.permissions().contains("catalogue.manage"),
+                      "schema",
+                      schema,
+                      "tables",
+                      visible,
+                      "warnings",
+                      warnings(tables))),
+              (table, key) ->
+                  CatalogueImport.stable(identity.branchId(), "price", table, format.encode(key)));
         });
   }
 
@@ -173,11 +184,63 @@ public class CatalogueManagementService {
         && !table.startsWith("special");
   }
 
+  public JsonNode recipeForPrice(
+      String token, String terminal, java.util.UUID price, String family) {
+    var state = state(token, terminal);
+    var rows =
+        jdbc.queryForList(
+            "SELECT c.source_type,c.definition::text FROM pos.catalog_item c JOIN pos.branch_price p USING(branch_id,item_id) WHERE c.branch_id=? AND p.price_id=?",
+            identity.branchId(),
+            price);
+    if (rows.size() != 1) throw new LocalFailure(404, "Product price not found");
+    var row = rows.getFirst();
+    String type = (String) row.get("source_type");
+    if (!List.of("branch_pizza_price", "branch_menu_item_price").contains(type))
+      throw new LocalFailure(400, "This item has no product recipe");
+    var definition = journal.parse((String) row.get("definition"));
+    return za.co.onlinepos.server.recipes.RecipePlanner.view(
+        state,
+        new za.co.onlinepos.contracts.Recipes.Product(
+            type.equals("branch_pizza_price") ? "pizza" : "menu_item",
+            definition
+                .path(type.equals("branch_pizza_price") ? "pizza_id" : "menu_item_id")
+                .asLong()),
+        family);
+  }
+
+  public JsonNode product(String token, String terminal, String kind, long id) {
+    return transactions.execute(
+        status -> {
+          journal.lockStream();
+          var state = state(token, terminal);
+          return ProductPlanner.view(
+              state, customization.catalog(state.path("editable").asBoolean()), kind, id);
+        });
+  }
+
+  public JsonNode saveProduct(
+      String token, String terminal, za.co.onlinepos.contracts.ProductEdits.Save save) {
+    if (save == null)
+      throw new za.co.onlinepos.server.local.ProductDraftFailure("Invalid product draft");
+    try {
+      return edit(
+          token,
+          terminal,
+          new CatalogueManagement.Edit(
+              save.commandId(), save.expectedRevision(), List.of(), false, null, save, false));
+    } catch (IllegalArgumentException failure) {
+      throw new ProductDraftFailure(failure.getMessage());
+    } catch (LocalFailure failure) {
+      if (failure.status() != 400) throw failure;
+      throw new ProductDraftFailure(failure.getMessage());
+    }
+  }
+
   public JsonNode edit(String token, String terminal, CatalogueManagement.Edit edit) {
     var session = require(token, terminal, true);
     if (edit == null
         || edit.changes() == null
-        || edit.changes().isEmpty()
+        || (edit.changes().isEmpty() && edit.recipe() == null && edit.product() == null)
         || edit.changes().size() > 200
         || edit.expectedRevision() < 0) throw new LocalFailure(400, "Invalid catalogue edit");
     var actor =
@@ -204,7 +267,25 @@ public class CatalogueManagementService {
           var changed = new HashSet<String>();
           var auditChanges = new java.util.ArrayList<Map<String, Object>>();
           var affected = new java.util.TreeSet<String>();
-          for (var change : edit.changes()) {
+          var prepared =
+              edit.product() == null
+                  ? null
+                  : ProductPlanner.prepare(
+                      state(token, terminal),
+                      edit.product(),
+                      table ->
+                          jdbc.queryForObject(
+                              "SELECT nextval('pos.catalogue_local_id')", Long.class));
+          var changes = new ArrayList<CatalogueManagement.Change>(edit.changes());
+          if (prepared != null) changes.addAll(prepared.changes());
+          else if (edit.recipe() != null)
+            changes.addAll(
+                edit.sharedRecipe()
+                    ? za.co.onlinepos.server.recipes.RecipePlanner.sharedChanges(
+                        state(token, terminal), edit.recipe())
+                    : za.co.onlinepos.server.recipes.RecipePlanner.changes(
+                        state(token, terminal), edit.recipe()));
+          for (var change : changes) {
             if (change == null || !editable(change.table()) || change.values() == null)
               throw new LocalFailure(400, "Unsupported catalogue record");
             var table = change.table();
@@ -237,7 +318,7 @@ public class CatalogueManagementService {
             if (row.hasNonNull("branch_id") && row.path("branch_id").asInt() != identity.branchId())
               throw new LocalFailure(403, "Foreign branch record refused");
             if (spec.get("columns").has("branch_id")) row.put("branch_id", identity.branchId());
-            if (original == null && generatedKey(table)) {
+            if (original == null && generatedKey(table) && prepared == null) {
               var column = spec.get("keys").get(0).asText();
               // Clients never choose a new master identity or recycle a removed identity.
               row.put(
@@ -285,21 +366,86 @@ public class CatalogueManagementService {
                   edit.expectedRevision(),
                   journal.encode(records),
                   journal.encode(projection));
+          if (edit.recipe() != null || prepared != null && prepared.recipe() != null) {
+            var existing =
+                jdbc.queryForList(
+                    "SELECT rules::text FROM pos.item_customization WHERE branch_id=?",
+                    String.class,
+                    identity.branchId());
+            if (!existing.isEmpty()) {
+              var old = journal.parse(existing.getFirst());
+              var cleaned =
+                  za.co.onlinepos.server.recipes.RecipePlanner.cleanRules(
+                      old,
+                      journal.tree(Map.of("tables", before)),
+                      state(token, terminal),
+                      changes,
+                      (table, key) ->
+                          CatalogueImport.stable(
+                              identity.branchId(), "price", table, format.encode(key)));
+              if (!old.equals(cleaned))
+                next =
+                    jdbc.queryForObject(
+                        "SELECT pos.apply_item_customization(?,?,?,?::jsonb)",
+                        Long.class,
+                        CommandJournal.digest(token),
+                        terminal,
+                        next,
+                        journal.encode(cleaned));
+            }
+          }
+          if (prepared != null) {
+            var nextRules =
+                ProductPlanner.rules(
+                    customization.catalog(true).rules(),
+                    prepared,
+                    (table, key) ->
+                        CatalogueImport.stable(
+                            identity.branchId(), "price", table, format.encode(key)));
+            var nextValue = journal.tree(nextRules);
+            if (prepared.recipe() != null)
+              nextValue =
+                  za.co.onlinepos.server.recipes.RecipePlanner.cleanRules(
+                      nextValue,
+                      journal.tree(Map.of("tables", before)),
+                      state(token, terminal),
+                      changes,
+                      (table, key) ->
+                          CatalogueImport.stable(
+                              identity.branchId(), "price", table, format.encode(key)));
+            next =
+                jdbc.queryForObject(
+                    "SELECT pos.apply_item_customization(?,?,?,?::jsonb)",
+                    Long.class,
+                    CommandJournal.digest(token),
+                    terminal,
+                    next,
+                    journal.encode(nextValue));
+            za.co.onlinepos.contracts.ItemCustomization.validate(customization.catalog(true));
+          }
           var result =
               journal.tree(
-                  Map.of("revision", next, "affectedItems", affected, "warnings", warnings(after)));
+                  Map.of(
+                      "revision",
+                      next,
+                      "affectedItems",
+                      affected,
+                      "warnings",
+                      warnings(after),
+                      "product",
+                      prepared == null ? Map.of() : prepared.product()));
           var safe =
               Map.of(
                   "revision",
                   next,
                   "tables",
-                  edit.changes().stream()
+                  changes.stream()
                       .map(CatalogueManagement.Change::table)
                       .distinct()
                       .sorted()
                       .toList(),
                   "recordsChanged",
-                  edit.changes().size());
+                  changes.size());
           journal.event(
               actor,
               "CATALOGUE_CHANGED",

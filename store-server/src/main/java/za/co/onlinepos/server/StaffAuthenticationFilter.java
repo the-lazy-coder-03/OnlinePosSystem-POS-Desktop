@@ -47,6 +47,7 @@ public final class StaffAuthenticationFilter extends OncePerRequestFilter {
             "/api/local/health",
             "/api/local/setup/pair",
             "/api/local/setup/bootstrap",
+            "/api/local/setup/store",
             "/api/local/setup/challenge",
             "/api/local/setup/enrol",
             "/api/local/terminal/heartbeat",

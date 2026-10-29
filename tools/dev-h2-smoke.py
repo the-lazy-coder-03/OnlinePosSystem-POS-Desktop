@@ -58,10 +58,12 @@ def main():
                 if java_home.exists():
                     env['JAVA_HOME'] = str(java_home)
                 wrapper = str(ROOT / ('mvnw.cmd' if os.name == 'nt' else 'mvnw'))
-                subprocess.run([wrapper, '-B', '-ntp', '-pl', 'pos-desktop', 'test', '-Dtest=LocalDataManagerLiveTest,GridModulesLiveTest'],
+                subprocess.run([wrapper, '-B', '-ntp', '-pl', 'pos-desktop', 'test', '-Dtest=LocalDataManagerLiveTest,GridModulesLiveTest,RecipeEditorLiveTest'],
                                cwd=ROOT, env=env, check=True)
             finally:
                 stop(process)
+                if (root / 'server.log').exists():
+                    Path('/tmp/onlinepos-recipe-smoke-server.log').write_bytes((root / 'server.log').read_bytes())
             process = subprocess.Popen(args, cwd=ROOT, stdout=log, stderr=log)
             try:
                 reopened = ready(process)
@@ -80,6 +82,11 @@ def main():
                 request=urllib.request.Request('http://127.0.0.1:'+str(port)+'/api/local/dev/data-manager/grid/customers/'+customers[0]['id']+'/history',headers={'Authorization':'Bearer '+reopened['token']})
                 with opener.open(request,timeout=2) as response:
                     assert len(json.load(response)['items'])==1
+                request=urllib.request.Request('http://127.0.0.1:'+str(port)+'/api/local/dev/data-manager/grid/catalogue/state',headers={'Authorization':'Bearer '+reopened['token']})
+                with opener.open(request,timeout=2) as response:
+                    tables=json.load(response)['tables']
+                recipe_item=[r for r in tables['menu_item'] if r['name']=='Bulk recipe product'][0]
+                assert len([r for r in tables['menu_item_ingredient'] if r['menu_item_id']==recipe_item['id']])==5
                 print('REAL_H2_JAVAFX_AND_BACKEND_RESTART_OK')
             finally:
                 stop(process)

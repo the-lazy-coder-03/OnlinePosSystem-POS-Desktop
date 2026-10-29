@@ -61,33 +61,23 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
 
   private static final List<Kind> KINDS =
       List.of(
-          new Kind("menu_item", "Menu items", "Items"),
-          new Kind("pizza", "Pizzas", "Items"),
-          new Kind("branch_menu_item_price", "Menu item prices", "Items"),
-          new Kind("pizza_allowed_size", "Allowed pizza sizes", "Items"),
-          new Kind("branch_pizza_price", "Pizza prices by size", "Items"),
-          new Kind("pizza_default_ingredient", "Pizza default ingredients", "Items"),
-          new Kind("burger_recipe", "Shared burger recipes", "Items"),
-          new Kind("burger_recipe_component", "Shared recipe components", "Items"),
-          new Kind("burger_recipe_assignment", "Burger recipe assignments", "Items"),
-          new Kind("burger_item_default_component", "Individual burger components", "Items"),
-          new Kind("menu_item_modifier_group", "Item extras / modifier groups", "Items"),
-          new Kind("ingredient", "Pizza ingredients", "Ingredients"),
-          new Kind("burger_component", "Burger components", "Ingredients"),
-          new Kind("salad_ingredients", "Salad ingredients", "Ingredients"),
-          new Kind("branch_burger_component_price", "Burger component prices", "Ingredients"),
-          new Kind("branch_extra_price", "Pizza extra prices by category / size", "Ingredients"),
-          new Kind("menu_category", "Menu categories", "Categories & Options"),
-          new Kind("pizza_category", "Pizza categories", "Categories & Options"),
-          new Kind("pizza_size", "Pizza sizes", "Categories & Options"),
-          new Kind("price_category", "Ingredient price categories", "Categories & Options"),
-          new Kind("pizza_base_option", "Pizza base options", "Categories & Options"),
+          new Kind("menu_category", "Product categories", "Categories"),
+          new Kind("pizza_category", "Pizza categories", "Categories"),
+          new Kind("ingredient", "Ingredients", "Ingredients"),
+          new Kind("burger_component", "Burger ingredients", "Ingredients"),
+          new Kind("price_category", "Ingredient price categories", "Ingredients"),
+          new Kind("burger_recipe", "Shared burger recipes", "Ingredients"),
+          new Kind("burger_recipe_component", "Shared recipe ingredients", "Ingredients"),
+          new Kind("modifier_group", "Modifier groups", "Modifiers & Extras"),
+          new Kind("modifier_option", "Modifier options", "Modifiers & Extras"),
+          new Kind("pizza_base_option", "Pizza bases", "Modifiers & Extras"),
+          new Kind("branch_menu_item_price", "Product prices", "Store Pricing"),
+          new Kind("branch_pizza_price", "Pizza prices by size", "Store Pricing"),
+          new Kind("pizza_size", "Reusable pizza sizes", "Store Pricing"),
+          new Kind("branch_extra_price", "Ingredient surcharges by size", "Store Pricing"),
           new Kind(
-              "branch_pizza_base_option_price",
-              "Pizza base prices by size",
-              "Categories & Options"),
-          new Kind("modifier_group", "Modifier groups", "Categories & Options"),
-          new Kind("modifier_option", "Modifier options", "Categories & Options"));
+              "branch_burger_component_price", "Burger ingredient surcharges", "Store Pricing"),
+          new Kind("branch_pizza_base_option_price", "Pizza base surcharges", "Store Pricing"));
   private static final java.util.Set<String> REMOVABLE =
       java.util.Set.of(
           "pizza_allowed_size",
@@ -130,7 +120,11 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
   private CatalogueManagement.Edit pending;
   private Dialog<?> dialog;
   private ItemWorkbench itemWorkbench;
+  private RecipeEditor recipeEditor;
   private boolean firstCategory;
+  private ProductWorkspace productWorkspace;
+  private boolean productsMode = true;
+  private String navigationSection = "Products";
 
   CataloguePanel(
       ModuleGateway gateway,
@@ -147,13 +141,16 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     this.activity = activity;
     setId("catalogue-panel");
     getStyleClass().add("admin-panel");
-    var title = new Label("Catalogue Management");
+    var title = new Label("Menu Management");
     title.getStyleClass().add("home-title");
+    var help = new Button("Help");
+    help.setId("catalogue-help");
+    help.setOnAction(e -> showHelp());
     var home = new Button("Home / Lock");
     home.setId("home-lock");
     home.setOnAction(
         e -> {
-          if (!(gateway instanceof DevGateway) || confirmClose()) lock.accept("");
+          if (confirmClose()) lock.accept("");
         });
     var spacer = new Region();
     HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -162,6 +159,7 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
             20,
             new VBox(4, title, new Label(store + " · Staff: " + username), connection),
             spacer,
+            help,
             home);
     header.setAlignment(Pos.CENTER_LEFT);
     header.setPadding(new Insets(18, 24, 18, 24));
@@ -169,7 +167,18 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     sidebar.getStyleClass().add("admin-sidebar");
     sidebar.setMinWidth(205);
     sidebar.setPrefWidth(205);
-    for (String section : List.of("Items", "Ingredients", "Categories & Options")) {
+    var productNav = new ToggleButton("Products");
+    productNav.getStyleClass().add("admin-nav");
+    sections.put("Products", productNav);
+    productNav.setId("catalogue-products");
+    productNav.setMaxWidth(Double.MAX_VALUE);
+    productNav.setOnAction(
+        e -> {
+          if (discard()) showProducts(false);
+        });
+    sidebar.getChildren().add(productNav);
+    for (String section :
+        List.of("Categories", "Ingredients", "Modifiers & Extras", "Store Pricing")) {
       var tab = new ToggleButton(section);
       tab.getStyleClass().add("admin-nav");
       tab.setId("catalogue-" + section.toLowerCase(java.util.Locale.ROOT).split(" ")[0]);
@@ -177,29 +186,29 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
       tab.setWrapText(true);
       tab.setOnAction(
           e -> {
-            if (discard())
+            if (discard()) {
+              productsMode = false;
               open(
                   KINDS.stream()
                       .filter(k -> k.section().equals(section))
                       .findFirst()
                       .orElseThrow());
+            }
             selectSidebar();
           });
       sidebar.getChildren().add(tab);
       sections.put(section, tab);
     }
-    var customize = new Button("Item setup & combos");
-    customize.setId("catalogue-customization");
-    customize.setMaxWidth(Double.MAX_VALUE);
-    customize.setOnAction(
+    var combos = new ToggleButton("Combos");
+    combos.getStyleClass().add("admin-nav");
+    sections.put("Combos", combos);
+    combos.setId("catalogue-combos");
+    combos.setMaxWidth(Double.MAX_VALUE);
+    combos.setOnAction(
         e -> {
-          if (discard()) {
-            if (itemWorkbench != null) itemWorkbench.close();
-            itemWorkbench = new ItemWorkbench(gateway, executor, token);
-            body.setCenter(itemWorkbench);
-          }
+          if (discard()) showProducts(true);
         });
-    sidebar.getChildren().add(customize);
+    sidebar.getChildren().add(combos);
     setLeft(sidebar);
     body.setPadding(new Insets(18));
     setCenter(body);
@@ -306,7 +315,8 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
         result -> {
           state = result;
           pending = null;
-          open(current);
+          if (productsMode) showProducts(false);
+          else open(current);
           if (firstCategory) {
             firstCategory = false;
             addFirstCategory();
@@ -320,6 +330,15 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
         });
   }
 
+  private void showProducts(boolean combos) {
+    productsMode = true;
+    navigationSection = combos ? "Combos" : "Products";
+    productWorkspace = new ProductWorkspace(gateway, executor, token);
+    productWorkspace.combosOnly(combos);
+    body.setCenter(productWorkspace);
+    selectSidebar();
+  }
+
   void addFirstCategory() {
     if (state == null) {
       firstCategory = true;
@@ -330,13 +349,14 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
   }
 
   private void selectSidebar() {
-    sections.forEach((name, tab) -> tab.setSelected(current.section().equals(name)));
+    sections.forEach((name, tab) -> tab.setSelected(navigationSection.equals(name)));
   }
 
   private void open(Kind target) {
     if (state == null) return;
     populating = true;
     current = target;
+    navigationSection = current.section();
     dirty = false;
     selected = null;
     pending = null;
@@ -468,7 +488,7 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
       case "sort_order" -> "Display order";
       case "is_removable" -> "Customer may remove";
       case "burger_id", "menu_item_id", "salad_id" -> "Menu item";
-      case "ingredient_id" -> "Pizza ingredient";
+      case "ingredient_id" -> "Ingredient";
       case "component_id" -> "Burger component";
       case "recipe_id" -> "Shared recipe";
       case "category_id" -> "Menu category";
@@ -761,6 +781,38 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
       form.getChildren().addAll(caption, input);
       if (editable) inputs.put(column, input);
     }
+    if (row != null && List.of("pizza", "menu_item").contains(current.table())) {
+      var recipe = new Button("Ingredients / Recipe");
+      recipe.setId("catalogue-recipe");
+      var product =
+          new za.co.onlinepos.contracts.Recipes.Product(
+              current.table(),
+              row.path(current.table().equals("pizza") ? "pizza_id" : "id").asLong());
+      recipe.setOnAction(
+          e -> {
+            if (!discard()) return;
+            recipeEditor =
+                new RecipeEditor(
+                    gateway,
+                    executor,
+                    token,
+                    product,
+                    () ->
+                        feedback.setText(
+                            "Recipe saved. Reload the catalogue to see updated records."));
+            var back = new Button("Back to product");
+            back.setOnAction(
+                event -> {
+                  if (recipeEditor.confirmClose()) {
+                    recipeEditor.close();
+                    recipeEditor = null;
+                    open(current);
+                  }
+                });
+            body.setCenter(new VBox(10, back, recipeEditor));
+          });
+      form.getChildren().add(recipe);
+    }
     var affected = affected(row);
     if (!affected.isEmpty()) {
       var warning = new Label("Shared recipe affects: " + String.join(", ", affected));
@@ -915,6 +967,121 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     }
   }
 
+  private void showHelp() {
+    var help = new Dialog<Void>();
+    help.setTitle("Menu Management Help");
+    help.setHeaderText("Find out what each workspace and product section does");
+    help.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+    help.setResizable(true);
+    if (getScene() != null) help.initOwner(getScene().getWindow());
+    var searchHelp = new TextField();
+    searchHelp.setPromptText("Search help, for example: ingredients, prices or save");
+    searchHelp.setId("catalogue-help-search");
+    var topics = new VBox(16);
+    topics.setPadding(new Insets(12));
+    var entries =
+        List.of(
+            new String[] {
+              "Products",
+              "Start here to create or edit a product. Select a category in the tree, search the product list, then select a product to open its editor. Pizza sizes are grouped under their product. Add Product starts a new draft; Reload reads the latest saved data."
+            },
+            new String[] {
+              "Save Product, Cancel and unsaved changes",
+              "Edit several product sections, then click Save Product once to save them together. Switching product tabs keeps your draft. Cancel discards the product draft. Switching products or leaving the workspace asks before discarding unsaved changes. If saving fails, your draft stays open: review the message and retry. After a conflict, reload the latest saved product before editing again."
+            },
+            new String[] {
+              "General Details",
+              "Set the product name, description, category and display order. Display order controls where the product appears. Standard products may also have 300 ml and 2 litre flags. Configure Ingredients / Recipe adds recipe controls when this product needs them; choose the appropriate ingredient family."
+            },
+            new String[] {
+              "Ingredients / Recipe",
+              "Choose the ingredients included in this product. The picker supports search, filters and selecting several ingredients at once. Select All and Clear apply to the filtered list. Review quantities, removability and display order where offered. Unavailable linked ingredients remain visible for review. Applying the picker updates your draft; Save Product commits it. Removing a link does not delete the reusable ingredient."
+            },
+            new String[] {
+              "New ingredients and ingredient price categories",
+              "Create a missing ingredient from the product ingredient picker. It stays in the draft until Save Product succeeds. A price category groups ingredients for surcharge pricing. To change an existing reusable ingredient for every product that uses it, use the Ingredients workspace."
+            },
+            new String[] {
+              "Shared burger recipes and Restore Inherited",
+              "A burger can inherit ingredients from a named shared recipe, with its own additions, exclusions and property overrides. Inherited means the value comes from the shared recipe; added means it belongs to this product; overridden means this product changes a shared value; excluded means this product omits it. Normal product edits affect only this product. Restore Inherited removes its local override or exclusion. Edit Shared Recipe is a separate save that can affect every linked product; save or discard your product draft first and review the affected products."
+            },
+            new String[] {
+              "Sizes / Variants",
+              "For pizzas, select which reusable sizes this product offers. Each size has its own store price and customization settings. Removing a size also removes its store price when the product is saved. Standard products have one price; their size flags are in General Details."
+            },
+            new String[] {
+              "Modifiers / Extras",
+              "Attach reusable modifier groups such as side choices or sauces. Required groups and minimum/maximum selections control what the cashier must choose. Options are the choices within each group. Configure the offered extras and customization rules for each priced variant. Product changes are staged until Save Product."
+            },
+            new String[] {
+              "Pricing",
+              "Set the selling price for this store, including a separate price for each offered pizza size. Extra ingredient and base surcharges are managed in Store Pricing. Review all offered sizes before saving."
+            },
+            new String[] {
+              "Availability and Archive Product",
+              "Available for sale controls whether the product can be sold. Archive Product stages making it inactive; click Save Product to apply that change. Historical orders are retained."
+            },
+            new String[] {
+              "Combos and Combo Configuration",
+              "The Combos workspace shows combo products. Combo Configuration appears when the product is configured as a combo. Define its slots, permitted choices and selection limits there. These settings are part of Save Product. The cashier builds customer orders in the sales screen."
+            },
+            new String[] {
+              "Categories",
+              "Organize products into categories and nested child categories. Add Category creates a category; Edit Category changes its name, parent, display order or archive status. Move a product by changing its category in General Details. A category cannot be its own ancestor. Before archiving a category, move or archive its products and child categories. Category changes are separate from a product save."
+            },
+            new String[] {
+              "Ingredients workspace",
+              "Manage reusable ingredients, burger ingredients, ingredient price categories and shared burger recipes. Global edits can affect products that use these records. Inactive ingredients are retained so existing links can still be reviewed. Use the product editor to change only one product's recipe."
+            },
+            new String[] {
+              "Modifiers & Extras workspace",
+              "Manage reusable modifier groups, their options and pizza bases. These global records can be used by multiple products. Attach the relevant groups and configure product-specific behavior in the product editor."
+            },
+            new String[] {
+              "Store Pricing workspace",
+              "Manage this store's product prices, pizza size prices, reusable pizza sizes, ingredient surcharges, burger ingredient surcharges and pizza base surcharges. These are separate global edits; Save Product applies only the open product draft."
+            },
+            new String[] {
+              "Global record controls and Home / Lock",
+              "In a global workspace, choose a record type, then use search and the available filters to find a record. Select it to edit its fields; Save applies that record's changes. Reference fields select another reusable record by name. Required fields must be completed. Home / Lock leaves Menu Management and locks the session, checking for unsaved changes first."
+            });
+    var empty = new Label("No matching help topics. Try another search.");
+    Runnable filterHelp =
+        () -> {
+          String query = searchHelp.getText().strip().toLowerCase(java.util.Locale.ROOT);
+          topics.getChildren().clear();
+          for (var entry : entries) {
+            if (!(entry[0] + " " + entry[1]).toLowerCase(java.util.Locale.ROOT).contains(query))
+              continue;
+            var heading = new Label(entry[0]);
+            heading.setStyle("-fx-font-weight: bold; -fx-font-size: 16px;");
+            var description = new Label(entry[1]);
+            description.setWrapText(true);
+            description.setMaxWidth(Double.MAX_VALUE);
+            topics.getChildren().add(new VBox(5, heading, description));
+          }
+          if (topics.getChildren().isEmpty()) topics.getChildren().add(empty);
+        };
+    searchHelp.textProperty().addListener((o, a, b) -> filterHelp.run());
+    filterHelp.run();
+    var scroll = new ScrollPane(topics);
+    scroll.setFitToWidth(true);
+    scroll.setPrefViewportHeight(470);
+    scroll.setPrefViewportWidth(720);
+    VBox.setVgrow(scroll, Priority.ALWAYS);
+    help.getDialogPane().setContent(new VBox(12, searchHelp, scroll));
+    help.getDialogPane().addEventFilter(KeyEvent.ANY, e -> activity.run());
+    help.getDialogPane().addEventFilter(MouseEvent.MOUSE_PRESSED, e -> activity.run());
+    help.getDialogPane().addEventFilter(TouchEvent.TOUCH_PRESSED, e -> activity.run());
+    dialog = help;
+    help.setOnHidden(
+        e -> {
+          if (dialog == help) dialog = null;
+        });
+    help.show();
+    searchHelp.requestFocus();
+  }
+
   private void showNotices() {
     var text =
         new Label(
@@ -939,6 +1106,18 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
   }
 
   private boolean discard() {
+    if (productWorkspace != null) {
+      if (!productWorkspace.confirmClose()) return false;
+      if (productWorkspace.savedState() != null) state = productWorkspace.savedState();
+      productWorkspace.close();
+      productWorkspace = null;
+    }
+    if (recipeEditor != null) {
+      if (!recipeEditor.confirmClose()) return false;
+      recipeEditor.close();
+      recipeEditor = null;
+    }
+
     if (itemWorkbench != null) {
       if (itemWorkbench.dirty()) {
         var confirm =
@@ -982,7 +1161,9 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
 
   @Override
   public void close() {
+    if (productWorkspace != null) productWorkspace.close();
     if (itemWorkbench != null) itemWorkbench.close();
+    if (recipeEditor != null) recipeEditor.close();
     closed = true;
     ++generation;
     if (dialog != null) dialog.close();

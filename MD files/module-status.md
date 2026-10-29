@@ -141,3 +141,10 @@ See [independent-products.md](independent-products.md) for current contracts and
 PostgreSQL V16 now preserves legacy hashes in an extensible authentication-method structure, reuses existing provisioning/session invalidation and rejects arbitrary first-match PIN selection. CLOUD account types are blocked from these LOCAL sign-in paths pending central security implementation.
 
 H2 V10 and the backend account core support empty Owner setup, staff/PIN management, exact employee selection, durable throttles, fresh-Owner checks and terminal/module-bound sessions. Backend tests cover persistence, PIN changes, revocation, permissions, key-loss refusal and failure handling. **H2 setup/staff UI and route enforcement are still pending; development tiles remain explicitly unauthenticated development-actor operations.** Cloud authentication, pairing and synchronization remain pending and disabled.
+
+
+## Product-first recipe editing
+
+Catalogue Management product forms and the item workbench now share a bulk checkbox recipe editor: search, visible-only selection/clearing, selected-first sorting, inline supported properties, ingredient creation, compatible recipe copying and one confirmed Save Recipe. Shared burger changes require impact confirmation. Existing specialist links and generic menu-item ingredients feed the current pricing engine and immutable draft snapshots.
+
+H2 V11 and PostgreSQL V17 are additive; production data and the cloud application are unchanged. See [bulk recipe workflow and API](bulk-recipes.md). Measured units/costs, inventory deductions and receipt/checkout work remain outside this increment. H2 development remains an explicitly labelled development actor; this feature does not complete the pending authentication UI.
