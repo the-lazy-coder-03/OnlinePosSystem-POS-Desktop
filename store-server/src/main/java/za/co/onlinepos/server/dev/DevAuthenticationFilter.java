@@ -40,7 +40,9 @@ public final class DevAuthenticationFilter extends OncePerRequestFilter {
       if (request.getContentLengthLong()
               > (request.getRequestURI().startsWith("/api/local/dev/data-manager/grid/catalogue")
                   ? 1048576
-                  : 65536)
+                  : request.getRequestURI().startsWith("/api/local/dev/data-manager/screens/")
+                      ? 4194304
+                      : 65536)
           || (List.of("POST", "PUT").contains(request.getMethod())
               && request.getContentLengthLong() < 0)) {
         response.sendError(413);

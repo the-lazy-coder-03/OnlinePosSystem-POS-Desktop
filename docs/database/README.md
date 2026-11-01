@@ -2,8 +2,8 @@
 
 These files collect all current application migrations in numeric order, including table creation, later column changes, constraints, indexes, functions, triggers and required migration configuration rows.
 
-- `postgresql-setup.sql`: installed local PostgreSQL database, migrations V1–V18. Catalogue source records are stored in the application's local catalogue structure; this does not set up the separate website/cloud database.
-- `h2-setup.sql`: development H2 database, migrations V1–V12 (there is no V4 migration). Includes the relational source catalogue and `dev_meta` tables.
+- `postgresql-setup.sql`: installed local PostgreSQL database, migrations V1–V19. Catalogue source records are stored in the application's local catalogue structure; this does not set up the separate website/cloud database.
+- `h2-setup.sql`: development H2 database, migrations V1–V13, including a fresh-empty-schema SQL projection of the Java V4 exact-money migration. Includes the relational source catalogue and `dev_meta` tables.
 
 Use these scripts for reviewing the complete schema or creating a separate, empty database for manual development. They contain no exported business data or login credentials. They do not provision a store, initial staff account, terminal trust or starter menu.
 
@@ -32,10 +32,12 @@ The script runs within one transaction. Use a role allowed to create schema obje
 Use the same H2 version as the application and its PostgreSQL compatibility options. For an in-memory structural check:
 
 ```sh
-java -cp /path/to/h2.jar org.h2.tools.RunScript \
+java -cp "/path/to/h2.jar:store-server/target/classes" org.h2.tools.RunScript \
   -url 'jdbc:h2:mem:setup_check;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH' \
   -user sa -script docs/database/h2-setup.sql
 ```
+
+Build store-server first: V13’s immutable-history triggers require its compiled `ImmutableScreenTrigger` on the classpath. On Windows, use `;` instead of `:` as the classpath separator. The V4 SQL projection is only for an empty structural review; the actual Java migration additionally preflights existing monetary data without rounding.
 
 H2 DDL may commit as it executes. Run against an empty database and stop on the first error.
 

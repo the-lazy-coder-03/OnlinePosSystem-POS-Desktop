@@ -106,6 +106,7 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
   private final Label connection = new Label("Connecting to store…");
   private final Map<String, Node> inputs = new LinkedHashMap<>();
   private final TableView<JsonNode> list = new TableView<>();
+  private final Map<JsonNode, Kind> rowKinds = new java.util.IdentityHashMap<>();
   private final ComboBox<Kind> kind = new ComboBox<>();
   private final TextField search = new TextField();
   private final ComboBox<String> status = new ComboBox<>();
@@ -231,7 +232,7 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
         .selectedItemProperty()
         .addListener(
             (o, a, b) -> {
-              if (populating || b == null || b.equals(selected)) return;
+              if (populating || b == null || b == selected) return;
               if (discard()) editForm(b);
               else {
                 populating = true;
@@ -339,6 +340,14 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     selectSidebar();
   }
 
+  void openCategories() {
+    if (!discard()) return;
+    productsMode = false;
+    navigationSection = "Categories";
+    current = categoryKind("menu_category");
+    if (state != null) open(current);
+  }
+
   void addFirstCategory() {
     if (state == null) {
       firstCategory = true;
@@ -385,23 +394,39 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     var reload = new Button("Reload");
     reload.setId("catalogue-reload");
     reload.setOnAction(e -> refresh());
-    var controls = new FlowPane(10, 10, kind, search, status, filter, reload);
+    var controls = new FlowPane(10, 10);
+    if (!categoriesMode()) controls.getChildren().add(kind);
+    controls.getChildren().addAll(search, status, filter, reload);
     if (!state.path("warnings").isEmpty()) {
       var review = new Button("Review notices (" + state.path("warnings").size() + ")");
       review.setOnAction(e -> showNotices());
       controls.getChildren().add(review);
     }
     if (state.path("editable").asBoolean()) {
-      var add = new Button("Add new");
+      var add = new Button(categoriesMode() ? "Add Category" : "Add new");
       add.setId("catalogue-add");
       add.setOnAction(
           e -> {
             if (discard()) {
               list.getSelectionModel().clearSelection();
+              if (categoriesMode()) current = categoryKind("menu_category");
               editForm(null);
             }
           });
       controls.getChildren().add(add);
+      if (categoriesMode()) {
+        var pizza = new Button("Add New Category");
+        pizza.setId("catalogue-add-pizza-category");
+        pizza.setOnAction(
+            e -> {
+              if (discard()) {
+                list.getSelectionModel().clearSelection();
+                current = categoryKind("pizza_category");
+                editForm(null);
+              }
+            });
+        controls.getChildren().add(pizza);
+      }
     }
     var instructions = new Label(instructions());
     instructions.setWrapText(true);
@@ -411,7 +436,7 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     list.setId("catalogue-list");
     list.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
     list.getColumns().clear();
-    column("Name / assignment", r -> display(current.table(), r));
+    column("Name / assignment", r -> display(rowKind(r).table(), r));
     column("Status / details", this::summary);
     list.setPlaceholder(
         new Label("No records match. Add a new record if you have editing access."));
@@ -546,7 +571,34 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     return String.join(" · ", parts);
   }
 
+  private boolean categoriesMode() {
+    return navigationSection.equals("Categories");
+  }
+
+  private Kind categoryKind(String table) {
+    return KINDS.stream().filter(k -> k.table().equals(table)).findFirst().orElseThrow();
+  }
+
+  private Kind rowKind(JsonNode row) {
+    return rowKinds.getOrDefault(row, current);
+  }
+
+  private List<JsonNode> listingRecords() {
+    rowKinds.clear();
+    if (!categoriesMode()) return records(current.table());
+    var result = new ArrayList<JsonNode>();
+    for (String table : List.of("menu_category", "pizza_category")) {
+      var source = categoryKind(table);
+      for (var row : records(table)) {
+        rowKinds.put(row, source);
+        result.add(row);
+      }
+    }
+    return result;
+  }
+
   private String filterColumn() {
+    if (categoriesMode()) return null;
     return state.path("schema").path(current.table()).path("references").properties().stream()
         .map(Map.Entry::getKey)
         .filter(c -> !c.equals("branch_id"))
@@ -578,10 +630,10 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
   private List<JsonNode> filtered() {
     String query = search.getText().strip().toLowerCase(java.util.Locale.ROOT);
     String column = filterColumn();
-    return records(current.table()).stream()
+    return listingRecords().stream()
         .filter(
             r ->
-                (display(current.table(), r) + " " + summary(r))
+                (display(rowKind(r).table(), r) + " " + summary(r))
                     .toLowerCase(java.util.Locale.ROOT)
                     .contains(query))
         .filter(
@@ -595,7 +647,14 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
                     || filter.getValue() == null
                     || filter.getValue().value() == null
                     || r.path(column).equals(filter.getValue().value()))
-        .sorted(java.util.Comparator.comparing(r -> display(current.table(), r)))
+        .sorted(
+            categoriesMode()
+                ? java.util.Comparator.<JsonNode>comparingInt(
+                        r -> rowKind(r).table().equals("menu_category") ? 0 : 1)
+                    .thenComparingInt(r -> r.path("sort_order").asInt())
+                    .thenComparing(
+                        r -> display(rowKind(r).table(), r), String.CASE_INSENSITIVE_ORDER)
+                : java.util.Comparator.comparing(r -> display(current.table(), r)))
         .toList();
   }
 
@@ -635,6 +694,7 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
   }
 
   private void editForm(JsonNode row) {
+    if (categoriesMode() && row != null) current = rowKind(row);
     populating = true;
     editorScroll.setVvalue(0);
     editorScroll.setHvalue(0);
@@ -643,7 +703,13 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
     pending = null;
     inputs.clear();
     form.getChildren().clear();
-    var title = new Label(row == null ? "New " + current.label() : display(current.table(), row));
+    var title =
+        new Label(
+            row == null
+                ? categoriesMode()
+                    ? current.table().equals("pizza_category") ? "New Category" : "New Category"
+                    : "New " + current.label()
+                : display(current.table(), row));
     title.getStyleClass().add("admin-section-title");
     title.setMaxWidth(Double.MAX_VALUE);
     title.setAlignment(Pos.CENTER_LEFT);
@@ -1027,7 +1093,7 @@ final class CataloguePanel extends BorderPane implements AutoCloseable {
             },
             new String[] {
               "Categories",
-              "Organize products into categories and nested child categories. Add Category creates a category; Edit Category changes its name, parent, display order or archive status. Move a product by changing its category in General Details. A category cannot be its own ancestor. Before archiving a category, move or archive its products and child categories. Category changes are separate from a product save."
+              "Product categories appear first, followed by pizza categories in the same list. Add Category creates a product category; Add New Category creates a pizza category. Search and status apply to both. Organize products into categories and nested child categories. Add Category creates a category; Edit Category changes its name, parent, display order or archive status. Move a product by changing its category in General Details. A category cannot be its own ancestor. Before archiving a category, move or archive its products and child categories. Category changes are separate from a product save."
             },
             new String[] {
               "Ingredients workspace",

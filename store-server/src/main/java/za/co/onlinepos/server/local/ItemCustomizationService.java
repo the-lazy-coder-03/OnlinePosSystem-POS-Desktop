@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -187,6 +188,54 @@ public class ItemCustomizationService {
                   terminal,
                   s.credentialVersion());
           return operations.createDraft(actor, draft);
+        });
+  }
+
+  public JsonNode editDraft(
+      String token,
+      String terminal,
+      UUID id,
+      za.co.onlinepos.contracts.LocalCommands.EditDraft draft,
+      za.co.onlinepos.server.local.LocalOperations operations) {
+    return transactions.execute(
+        status -> {
+          journal.lockStream();
+          var s = require(token, terminal, false);
+          if (!s.permissions().contains("module.sales_orders"))
+            throw new LocalFailure(403, "Sales draft permission required");
+          var actor =
+              new StaffService.Actor(
+                  s.staffId(),
+                  jdbc.queryForObject(
+                      "SELECT role FROM pos.staff WHERE branch_id=? AND staff_id=?",
+                      String.class,
+                      identity.branchId(),
+                      s.staffId()),
+                  terminal,
+                  s.credentialVersion());
+          return operations.editDraft(actor, id, draft, token);
+        });
+  }
+
+  public JsonNode listDrafts(String token, String terminal, LocalOperations operations) {
+    return transactions.execute(
+        status -> {
+          journal.lockStream();
+          var session = require(token, terminal, false);
+          if (!session.permissions().contains("module.sales_orders"))
+            throw new LocalFailure(403, "Sales draft permission required");
+          return operations.drafts();
+        });
+  }
+
+  public JsonNode readDraft(String token, String terminal, UUID id, LocalOperations operations) {
+    return transactions.execute(
+        status -> {
+          journal.lockStream();
+          var session = require(token, terminal, false);
+          if (!session.permissions().contains("module.sales_orders"))
+            throw new LocalFailure(403, "Sales draft permission required");
+          return operations.draft(id);
         });
   }
 

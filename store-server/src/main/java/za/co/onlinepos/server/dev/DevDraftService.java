@@ -27,21 +27,49 @@ public class DevDraftService {
   }
 
   public JsonNode create(LocalCommands.CreateDraft command) {
+    return write(command, null);
+  }
+
+  public JsonNode edit(UUID id, LocalCommands.EditDraft command) {
+    if (command.expectedRevision() < 0)
+      throw DevModuleStore.fail(400, "Expected revision required");
+    return write(
+        new LocalCommands.CreateDraft(
+            command.commandId(), id, command.lines(), command.customerId()),
+        command.expectedRevision());
+  }
+
+  private JsonNode payload(LocalCommands.CreateDraft command) {
+    var value = store.tree(command);
+    for (var line : value.path("lines"))
+      if (line.path("notes").asText().isBlank())
+        ((com.fasterxml.jackson.databind.node.ObjectNode) line).remove("notes");
+    return value;
+  }
+
+  private JsonNode write(LocalCommands.CreateDraft command, Long expected) {
     return store.command(
         command.commandId(),
-        "DRAFT_CREATE",
-        command,
+        expected == null ? "DRAFT_CREATE" : "DRAFT_EDIT",
+        expected == null ? payload(command) : List.of(payload(command), expected),
         () -> {
           if (command.orderId() == null
               || command.lines() == null
               || command.lines().isEmpty()
               || command.lines().size() > 100)
             throw DevModuleStore.fail(400, "A draft needs 1–100 lines");
-          if (store.jdbc.queryForObject(
-                  "SELECT count(*) FROM dev_meta.drafts WHERE order_id=?",
-                  Integer.class,
-                  command.orderId())
-              != 0) throw DevModuleStore.fail(409, "Draft identity already exists");
+          if (expected == null) {
+            if (store.jdbc.queryForObject(
+                    "SELECT count(*) FROM dev_meta.drafts WHERE order_id=?",
+                    Integer.class,
+                    command.orderId())
+                != 0) throw DevModuleStore.fail(409, "Draft identity already exists");
+          } else {
+            var old = get(command.orderId());
+            if (!"DRAFT".equals(old.path("state").asText())
+                || old.path("revision").asLong() != expected)
+              throw DevModuleStore.fail(409, "Draft changed or cannot be edited");
+          }
           JsonNode customer = store.json.nullNode();
           UUID customerId = null;
           if (command.customerId() != null) {
@@ -95,21 +123,30 @@ public class DevDraftService {
                       quotes,
                       "lineIds",
                       command.lines().stream().map(LocalCommands.DraftLine::lineId).toList(),
+                      "lineNotes",
+                      command.lines().stream().map(LocalCommands.DraftLine::notes).toList(),
                       "customer",
                       customer,
                       "total",
                       total));
-          store.jdbc.update(
-              "INSERT INTO dev_meta.drafts(order_id,reference,customer_id,snapshot) VALUES(?,?,?,?)",
-              command.orderId(),
-              reference,
-              customerId,
-              store.encode(snapshot));
+          if (expected == null) {
+            store.jdbc.update(
+                "INSERT INTO dev_meta.drafts(order_id,reference,customer_id,snapshot) VALUES(?,?,?,?)",
+                command.orderId(),
+                reference,
+                customerId,
+                store.encode(snapshot));
+          } else
+            store.jdbc.update(
+                "UPDATE dev_meta.drafts SET customer_id=?,snapshot=?,revision=revision+1 WHERE order_id=?",
+                customerId,
+                store.encode(snapshot),
+                command.orderId());
           store.event(
               command.commandId(),
-              "DRAFT_CREATED",
+              expected == null ? "DRAFT_CREATED" : "DRAFT_EDITED",
               command.orderId(),
-              0,
+              expected == null ? 0 : expected + 1,
               Map.of("branchId", store.branchId(), "lineCount", quotes.size(), "total", total));
           store.queueRecord(command.commandId(), snapshot);
           return store.tree(
@@ -119,12 +156,19 @@ public class DevDraftService {
                   "reference",
                   reference,
                   "revision",
-                  0,
+                  expected == null ? 0 : expected + 1,
                   "state",
                   "DRAFT",
                   "total",
                   total));
         });
+  }
+
+  public JsonNode list() {
+    return store.tree(
+        store.jdbc.query(
+            "SELECT order_id FROM dev_meta.drafts WHERE status='DRAFT' ORDER BY created_at DESC LIMIT 100",
+            (rs, n) -> get(rs.getObject(1, UUID.class))));
   }
 
   public JsonNode get(UUID id) {

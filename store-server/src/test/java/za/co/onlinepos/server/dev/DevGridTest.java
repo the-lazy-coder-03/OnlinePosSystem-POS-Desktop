@@ -129,6 +129,67 @@ class DevGridTest {
   }
 
   @Test
+  void categoriesWithOverlappingIdsPersistIndependently() {
+    long sharedId;
+    java.util.List<java.util.Map<String, Object>> assignments;
+    try (var context = start()) {
+      var store = context.getBean(DevModuleStore.class);
+      var catalogue = context.getBean(DevCatalogueService.class);
+      sharedId =
+          store.jdbc.queryForObject(
+              "SELECT m.id FROM public.menu_category m JOIN public.pizza_category p ON p.pizza_category_id=m.id ORDER BY m.id LIMIT 1",
+              Long.class);
+      assignments =
+          store.jdbc.queryForList(
+              "SELECT pizza_id,pizza_category_id FROM public.pizza ORDER BY pizza_id");
+      for (String table : List.of("menu_category", "pizza_category")) {
+        String key = table.equals("menu_category") ? "id" : "pizza_category_id";
+        var row =
+            (com.fasterxml.jackson.databind.node.ObjectNode)
+                java.util.stream.StreamSupport.stream(
+                        catalogue.state().path("tables").path(table).spliterator(), false)
+                    .filter(r -> r.path(key).asLong() == sharedId)
+                    .findFirst()
+                    .orElseThrow()
+                    .deepCopy();
+        row.put(
+            "name",
+            table.equals("menu_category") ? "Renamed product category" : "Renamed pizza category");
+        var values =
+            store.json.convertValue(
+                row, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+        catalogue.edit(
+            new CatalogueManagement.Edit(
+                UUID.randomUUID(),
+                store.revision(),
+                List.of(new CatalogueManagement.Change(table, List.of(sharedId), values, false)),
+                false));
+      }
+      assertEquals(
+          assignments,
+          store.jdbc.queryForList(
+              "SELECT pizza_id,pizza_category_id FROM public.pizza ORDER BY pizza_id"));
+    }
+    try (var context = start()) {
+      var store = context.getBean(DevModuleStore.class);
+      assertEquals(
+          "Renamed product category",
+          store.jdbc.queryForObject(
+              "SELECT name FROM public.menu_category WHERE id=?", String.class, sharedId));
+      assertEquals(
+          "Renamed pizza category",
+          store.jdbc.queryForObject(
+              "SELECT name FROM public.pizza_category WHERE pizza_category_id=?",
+              String.class,
+              sharedId));
+      assertEquals(
+          assignments,
+          store.jdbc.queryForList(
+              "SELECT pizza_id,pizza_category_id FROM public.pizza ORDER BY pizza_id"));
+    }
+  }
+
+  @Test
   void profilesLifecycleConflictsAliasesAndSafeAudit() {
     try (var context = start()) {
       var customers = context.getBean(DevCustomerService.class);

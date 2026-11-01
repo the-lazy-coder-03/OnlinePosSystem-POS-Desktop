@@ -128,6 +128,7 @@ public final class CataloguePricingAdapter {
       }
     }
     var products = new LinkedHashMap<UUID, Product>();
+    var variantGroups = new LinkedHashMap<UUID, String>();
     var menuPrices = new HashMap<String, UUID>();
     var pizzaPrices = new HashMap<String, List<UUID>>();
     for (var r : rawPrices) {
@@ -327,6 +328,7 @@ public final class CataloguePricingAdapter {
                                 day.path("day_of_week").asInt()
                                     == today.getDayOfWeek().getValue()));
       }
+      if (!sourceId.isBlank()) variantGroups.put(id, type + ":" + sourceId);
       products.put(
           id,
           new Product(
@@ -440,7 +442,15 @@ public final class CataloguePricingAdapter {
               p.groups(),
               p.combo());
         });
-    return new Catalog(revision, products, extras, categories, rules, editable, parents);
+    return new Catalog(
+        revision,
+        products,
+        extras,
+        categories,
+        rules,
+        editable,
+        parents,
+        Map.copyOf(variantGroups));
   }
 
   private static void add(

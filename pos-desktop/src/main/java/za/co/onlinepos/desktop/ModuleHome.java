@@ -53,7 +53,7 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   private long connectionInterval = java.time.Duration.ofSeconds(1).toNanos();
   private boolean closed;
   private StoreManagementPanel storeManagement;
-  private ItemWorkbench salesBuilder;
+  private SalesRuntime salesBuilder;
   private long generation;
   private Dialog<ButtonType> pinDialog;
 
@@ -405,15 +405,7 @@ final class ModuleHome extends BorderPane implements AutoCloseable {
   private void showModule(PosModule module, String username) {
     if (module == PosModule.SALES_ORDERS
         && (gateway instanceof DevGateway || gateway instanceof PreviewGateway || token != null)) {
-      salesBuilder = new ItemWorkbench(gateway, executor, token, true);
-      if (gateway instanceof DevGateway)
-        salesBuilder.onAddCategory(
-            () -> {
-              salesBuilder.close();
-              salesBuilder = null;
-              showModule(PosModule.CATALOGUE, "Development actor");
-              catalogue.addFirstCategory();
-            });
+      salesBuilder = new SalesRuntime(gateway, executor, token);
       var home = new Button("Home");
       home.setId("home-lock");
       home.setOnAction(

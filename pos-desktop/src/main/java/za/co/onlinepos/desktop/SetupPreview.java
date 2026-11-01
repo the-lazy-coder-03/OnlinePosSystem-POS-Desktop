@@ -41,7 +41,14 @@ public final class SetupPreview {
                   if (!System.getProperty("os.name").startsWith("Windows"))
                     return CompletableFuture.completedFuture(
                         List.of(new LanPolicy("preview", "Preview network", "192.168.1.10", 24)));
-                  return super.networks();
+                  return super.networks()
+                      .handle(
+                          (choices, error) ->
+                              error != null || choices.isEmpty()
+                                  ? List.of(
+                                      new LanPolicy(
+                                          "preview", "Preview network", "192.168.1.10", 24))
+                                  : choices);
                 }
 
                 @Override
@@ -50,7 +57,7 @@ public final class SetupPreview {
                   return CompletableFuture.failedFuture(new IllegalStateException("Preview only"));
                 }
               };
-          var root = new BorderPane(new SetupWizard(presenter));
+          var root = new BorderPane(new SetupWizard(presenter, true));
           root.setTop(new Label("Setup preview · installation is disabled"));
           var scene = new Scene(root, 1050, 800);
           scene.getStylesheets().add(SetupPreview.class.getResource("setup.css").toExternalForm());

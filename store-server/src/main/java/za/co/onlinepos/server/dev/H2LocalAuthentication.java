@@ -107,7 +107,16 @@ public class H2LocalAuthentication {
     if (role.equals("CASHIER")) return Set.of(PosModule.SALES_ORDERS.permission());
     var all = new java.util.HashSet<String>(Customers.PERMISSIONS);
     for (var module : PosModule.values()) all.add(module.permission());
-    all.addAll(Set.of("staff.manage", "rbac.manage", "catalogue.manage", "audit.view"));
+    all.addAll(
+        Set.of(
+            "staff.manage",
+            "rbac.manage",
+            "catalogue.manage",
+            "audit.view",
+            "module.sales_screen_builder",
+            "sales_screen.edit",
+            "sales_screen.publish",
+            "sales_screen.manage_templates"));
     return Set.copyOf(all);
   }
 

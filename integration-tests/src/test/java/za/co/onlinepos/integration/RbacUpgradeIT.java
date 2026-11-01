@@ -66,7 +66,7 @@ class RbacUpgradeIT {
             "SELECT description FROM pos.catalog_item WHERE item_id=?", String.class, item));
     assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM pos.staff_role", Integer.class));
     assertEquals(
-        6,
+        7,
         jdbc.queryForObject(
             "SELECT count(*) FROM pos.role_permission WHERE role_name='MANAGER' AND permission LIKE 'module.%'",
             Integer.class));

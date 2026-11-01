@@ -65,6 +65,11 @@ class DevGateway extends ModuleGateway {
   }
 
   JsonNode call(String path, String method, Object value) throws Exception {
+    return call(path, method, value, "");
+  }
+
+  private JsonNode call(String path, String method, Object value, String screenSession)
+      throws Exception {
     if (!path.startsWith("/") || path.contains("..") || path.contains("#"))
       throw new IllegalArgumentException("Invalid API path");
     byte[] bytes = value == null ? new byte[0] : JsonFiles.JSON.writeValueAsBytes(value);
@@ -75,6 +80,8 @@ class DevGateway extends ModuleGateway {
                   .timeout(Duration.ofSeconds(10))
                   .header("Authorization", "Bearer " + token)
                   .header("Content-Type", "application/json")
+                  .header("X-Screen-Terminal", "development-desktop")
+                  .header("X-Screen-Session", screenSession == null ? "" : screenSession)
                   .method(method, HttpRequest.BodyPublishers.ofByteArray(bytes))
                   .build(),
               HttpResponse.BodyHandlers.ofByteArray());
@@ -96,6 +103,8 @@ class DevGateway extends ModuleGateway {
               case "VALIDATION" -> "Check the highlighted field.";
               default -> "The backend did not confirm this operation. Your edits are retained.";
             };
+        if (path.startsWith("/screens/") && !body.path("error").asText().isBlank())
+          message = body.path("error").asText();
         var failure =
             new Failure(
                 response.statusCode(),
@@ -142,5 +151,17 @@ class DevGateway extends ModuleGateway {
   public JsonNode request(String endpoint, String method, byte[] body, String unused)
       throws Exception {
     return module("context", "GET", null);
+  }
+
+  @Override
+  public JsonNode screens(String path, String method, Object payload, String session)
+      throws Exception {
+    return call("/screens/" + path, method, payload, session);
+  }
+
+  @Override
+  Path screenCache() {
+    return Path.of(
+        System.getProperty("user.home"), ".onlinepos-dev", instance, "sales-screen-cache.json");
   }
 }

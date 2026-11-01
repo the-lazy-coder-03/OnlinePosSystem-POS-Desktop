@@ -123,7 +123,23 @@ public final class ItemCustomization {
       Map<String, String> categories,
       Rules rules,
       boolean editable,
-      Map<String, String> parents) {
+      Map<String, String> parents,
+      Map<UUID, String> variantGroups) {
+    public Catalog(
+        long revision,
+        Map<UUID, Product> products,
+        Map<String, Extra> extras,
+        Map<String, String> categories,
+        Rules rules,
+        boolean editable,
+        Map<String, String> parents) {
+      this(revision, products, extras, categories, rules, editable, parents, Map.of());
+    }
+
+    public Catalog {
+      if (variantGroups == null) variantGroups = Map.of();
+    }
+
     public Catalog(
         long revision,
         Map<UUID, Product> products,

@@ -16,7 +16,24 @@ public final class LocalCommands {
       UUID priceId,
       long expectedPriceRevision,
       int quantity,
-      ItemCustomization.Selection customization) {
+      ItemCustomization.Selection customization,
+      String notes) {
+    public DraftLine(
+        UUID lineId,
+        UUID priceId,
+        long expectedPriceRevision,
+        int quantity,
+        ItemCustomization.Selection customization) {
+      this(lineId, priceId, expectedPriceRevision, quantity, customization, "");
+    }
+
+    public DraftLine {
+      notes = notes == null ? "" : notes;
+      if (notes.length() > 500
+          || notes.codePoints().anyMatch(c -> Character.isISOControl(c) && c != '\n' && c != '\t'))
+        throw new IllegalArgumentException("Notes must be at most 500 printable characters");
+    }
+
     public DraftLine(UUID lineId, UUID priceId, long expectedPriceRevision, int quantity) {
       this(lineId, priceId, expectedPriceRevision, quantity, null);
     }
@@ -27,6 +44,9 @@ public final class LocalCommands {
       this(commandId, orderId, lines, null);
     }
   }
+
+  public record EditDraft(
+      UUID commandId, long expectedRevision, List<DraftLine> lines, UUID customerId) {}
 
   public record CancelDraft(UUID commandId, long expectedRevision) {}
 }

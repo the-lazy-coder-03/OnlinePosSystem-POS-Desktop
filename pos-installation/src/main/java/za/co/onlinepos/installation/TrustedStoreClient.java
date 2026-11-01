@@ -264,7 +264,10 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
       byte[] body,
       String token)
       throws Exception {
-    if (!(path.equals("/api/local/catalogue/state") && method.equals("GET")
+    if (!(path.equals("/api/local/catalogue/items/drafts") && method.equals("GET")
+        || path.matches("/api/local/catalogue/items/drafts/[a-f0-9-]{36}")
+            && java.util.Set.of("GET", "PUT").contains(method)
+        || path.equals("/api/local/catalogue/state") && method.equals("GET")
         || path.equals("/api/local/catalogue/records") && method.equals("PUT")
         || path.equals("/api/local/catalogue/items") && method.equals("GET")
         || path.equals("/api/local/catalogue/items/rules") && method.equals("PUT")
@@ -272,6 +275,30 @@ public final class TrustedStoreClient implements PairingClient, StoreApiClient {
                 .contains(path)
             && method.equals("POST")))
       throw new IllegalArgumentException("Unsupported catalogue endpoint");
+    return authenticatedRequest(invitation, secrets, path, method, body, token);
+  }
+
+  public byte[] screenRequest(
+      Pairing.Invitation invitation,
+      SecretStore secrets,
+      String path,
+      String method,
+      byte[] body,
+      String token)
+      throws Exception {
+    if (!(method.equals("GET")
+            && path.matches(
+                "/api/local/sales-screens/(context|publication|assets/[a-f0-9]{64}|events\\?after=[0-9]+|history/[a-f0-9-]{36}|revisions/[a-f0-9-]{36}/[0-9]+)")
+        || method.equals("POST")
+            && java.util.Set.of(
+                    "/api/local/sales-screens/workflows/approve",
+                    "/api/local/sales-screens/assets",
+                    "/api/local/sales-screens/save",
+                    "/api/local/sales-screens/preview",
+                    "/api/local/sales-screens/publish",
+                    "/api/local/sales-screens/rollback")
+                .contains(path)))
+      throw new IllegalArgumentException("Unsupported sales-screen endpoint");
     return authenticatedRequest(invitation, secrets, path, method, body, token);
   }
 

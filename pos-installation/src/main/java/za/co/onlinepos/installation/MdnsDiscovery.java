@@ -42,7 +42,12 @@ public final class MdnsDiscovery implements MasterDiscovery {
     }
     var address = InetAddress.getByName(policy.address());
     var network = java.net.NetworkInterface.getByInetAddress(address);
-    if (network == null || !network.isUp() || network.isLoopback() || network.isVirtual())
+    // WindowsNetworks already restricts the selected adapter to physical LANs
+    // and externally backed Hyper-V host interfaces.
+    if (network == null
+        || !network.isUp()
+        || network.isLoopback()
+        || (!System.getProperty("os.name").startsWith("Windows") && network.isVirtual()))
       throw new java.io.IOException("Approved LAN unavailable");
     listeners.add(JmDNS.create(address));
   }

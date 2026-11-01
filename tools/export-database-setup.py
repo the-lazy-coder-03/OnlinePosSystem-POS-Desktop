@@ -1,12 +1,29 @@
 #!/usr/bin/env python3
 """Export fresh-database SQL from the application's authoritative migrations."""
 import argparse
+import json
 from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
 RESOURCES = ROOT / 'store-server/src/main/resources/db'
 OUTPUT = ROOT / 'docs/database'
+
+
+def clean(source):
+    return re.sub(r'(?m)^[ \t]+$', '', source.rstrip())
+
+
+def fresh_money_projection():
+    schema = json.loads((RESOURCES.parent / 'catalogue-schema-v1.json').read_text())
+    fields = [(table, column) for table, details in schema.items()
+              for column in details.get('columns', {})
+              if column in ('price', 'additional_price', 'bundle_price')]
+    return ('\n-- BEGIN V4__exact_catalogue_money (fresh-empty-schema SQL projection of Java migration)\n'
+            '-- Existing-value preflight remains in db.h2.V4__exact_catalogue_money; use Flyway for upgrades.\n'
+            + ''.join(f'ALTER TABLE public.{table} ALTER COLUMN {column} DECIMAL(18,2);\n'
+                      for table, column in fields)
+            + '-- END V4__exact_catalogue_money\n')
 
 
 def render(directory, engine, preamble):
@@ -22,7 +39,8 @@ def render(directory, engine, preamble):
         '-- See docs/database/README.md before use.\n\n'
     )
     return header + preamble + ''.join(
-        f'\n-- BEGIN {path.name}\n{path.read_text().rstrip()}\n-- END {path.name}\n'
+        f'\n-- BEGIN {path.name}\n{clean(path.read_text())}\n-- END {path.name}\n'
+        + (fresh_money_projection() if engine == 'H2' and path.name.startswith('V3__') else '')
         for path in files)
 
 

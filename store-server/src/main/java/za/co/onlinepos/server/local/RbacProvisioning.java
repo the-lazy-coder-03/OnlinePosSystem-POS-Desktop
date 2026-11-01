@@ -19,7 +19,15 @@ public final class RbacProvisioning {
     for (var module : PosModule.values()) result.add(module.permission());
     result.addAll(
         Set.of(
-            "staff.manage", "rbac.manage", "audit.view", "catalogue.manage", "sales.layouts.edit"));
+            "staff.manage",
+            "rbac.manage",
+            "audit.view",
+            "catalogue.manage",
+            "sales.layouts.edit",
+            "module.sales_screen_builder",
+            "sales_screen.edit",
+            "sales_screen.publish",
+            "sales_screen.manage_templates"));
     result.addAll(za.co.onlinepos.contracts.Customers.PERMISSIONS);
     return result;
   }

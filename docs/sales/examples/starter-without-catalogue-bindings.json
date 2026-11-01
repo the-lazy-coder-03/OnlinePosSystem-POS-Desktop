@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 1,
+  "screenId": "fb04c931-762e-5a03-b788-e4c65c0a78c6",
+  "storeId": "14385b33-223c-5754-ade1-90a93497982f",
+  "canvas": {
+    "width": 1200,
+    "height": 720,
+    "snapSize": 8
+  },
+  "pages": [
+    {
+      "id": "9156b5bc-d0d1-5cfa-a24d-d8f09de125fe",
+      "name": "Sales",
+      "purpose": "SALES",
+      "widgets": [
+        {
+          "id": "3ee14754-ab98-5092-affd-f5c70a791a06",
+          "type": "NAV_BUTTON",
+          "label": "Payment page",
+          "rect": {
+            "x": 16,
+            "y": 16,
+            "w": 200,
+            "h": 60,
+            "z": 1
+          },
+          "style": {
+            "background": "#087f7a",
+            "foreground": "#ffffff",
+            "fontSize": 18,
+            "border": "#d8e1eb",
+            "borderWidth": 1,
+            "fontFamily": "Segoe UI",
+            "assetHash": null
+          },
+          "binding": {
+            "targetPageId": "fc09842d-d5bc-5ff2-a152-045dbe26e291"
+          },
+          "options": {},
+          "access": "CASHIER",
+          "groupId": null
+        },
+        {
+          "id": "2d52c5a3-4415-5b5c-86d0-fcc04d3da2a8",
+          "type": "ORDER_LIST",
+          "label": "Draft order",
+          "rect": {
+            "x": 400,
+            "y": 90,
+            "w": 500,
+            "h": 460,
+            "z": 1
+          },
+          "style": {
+            "background": "#087f7a",
+            "foreground": "#ffffff",
+            "fontSize": 18,
+            "border": "#d8e1eb",
+            "borderWidth": 1,
+            "fontFamily": "Segoe UI",
+            "assetHash": null
+          },
+          "binding": {},
+          "options": {
+            "columns": "quantity,description,unitPrice,lineTotal"
+          },
+          "access": "CASHIER",
+          "groupId": null
+        },
+        {
+          "id": "f01fdd85-e938-5be0-b6ed-1ba2342a47d7",
+          "type": "TOTALS",
+          "label": "Draft total",
+          "rect": {
+            "x": 400,
+            "y": 560,
+            "w": 500,
+            "h": 65,
+            "z": 1
+          },
+          "style": {
+            "background": "#087f7a",
+            "foreground": "#ffffff",
+            "fontSize": 18,
+            "border": "#d8e1eb",
+            "borderWidth": 1,
+            "fontFamily": "Segoe UI",
+            "assetHash": null
+          },
+          "binding": {},
+          "options": {},
+          "access": "CASHIER",
+          "groupId": null
+        },
+        {
+          "id": "d93cc6ac-76dd-5bcf-bc3a-1730995a8943",
+          "type": "FUNCTION_BUTTON",
+          "label": "Save draft",
+          "rect": {
+            "x": 920,
+            "y": 90,
+            "w": 265,
+            "h": 60,
+            "z": 1
+          },
+          "style": {
+            "background": "#087f7a",
+            "foreground": "#ffffff",
+            "fontSize": 18,
+            "border": "#d8e1eb",
+            "borderWidth": 1,
+            "fontFamily": "Segoe UI",
+            "assetHash": null
+          },
+          "binding": {
+            "action": "SAVE_DRAFT"
+          },
+          "options": {},
+          "access": "CASHIER",
+          "groupId": null
+        },
+        {
+          "id": "b6e1b664-7b98-5709-a093-4f73d4370089",
+          "type": "KEYPAD",
+          "label": "Selected line quantity",
+          "rect": {
+            "x": 920,
+            "y": 290,
+            "w": 265,
+            "h": 330,
+            "z": 1
+          },
+          "style": {
+            "background": "#087f7a",
+            "foreground": "#ffffff",
+            "fontSize": 18,
+            "border": "#d8e1eb",
+            "borderWidth": 1,
+            "fontFamily": "Segoe UI",
+            "assetHash": null
+          },
+          "binding": {},
+          "options": {},
+          "access": "CASHIER",
+          "groupId": null
+        },
+        {
+          "id": "bf523899-8a8d-5568-920b-e75f846cba92",
+          "type": "TEXT",
+          "label": "Place catalogue variant buttons in the builder",
+          "rect": {
+            "x": 16,
+            "y": 100,
+            "w": 360,
+            "h": 100,
+            "z": 1
+          },
+          "style": {
+            "background": "#087f7a",
+            "foreground": "#ffffff",
+            "fontSize": 18,
+            "border": "#d8e1eb",
+            "borderWidth": 1,
+            "fontFamily": "Segoe UI",
+            "assetHash": null
+          },
+          "binding": {},
+          "options": {},
+          "access": "CASHIER",
+          "groupId": null
+        }
+      ]
+    },
+    {
+      "id": "fc09842d-d5bc-5ff2-a152-045dbe26e291",
+      "name": "Payment design",
+      "purpose": "PAYMENT",
+      "widgets": [
+        {
+          "id": "792f5c03-b004-56fb-8718-153923574a38",
+          "type": "NAV_BUTTON",
+          "label": "Back to Sales",
+          "rect": {
+            "x": 16,
+            "y": 16,
+            "w": 200,
+            "h": 60,
+            "z": 1
+          },
+          "style": {
+            "background": "#087f7a",
+            "foreground": "#ffffff",
+            "fontSize": 18,
+            "border": "#d8e1eb",
+            "borderWidth": 1,
+            "fontFamily": "Segoe UI",
+            "assetHash": null
+          },
+          "binding": {
+            "targetPageId": "9156b5bc-d0d1-5cfa-a24d-d8f09de125fe"
+          },
+          "options": {},
+          "access": "CASHIER",
+          "groupId": null
+        },
+        {
+          "id": "fc09842d-d5bc-5ff2-a152-045dbe26e291",
+          "type": "PAYMENT_PANEL",
+          "label": "Unavailable until payment backend exists",
+          "rect": {
+            "x": 400,
+            "y": 100,
+            "w": 600,
+            "h": 500,
+            "z": 1
+          },
+          "style": {
+            "background": "#087f7a",
+            "foreground": "#ffffff",
+            "fontSize": 18,
+            "border": "#d8e1eb",
+            "borderWidth": 1,
+            "fontFamily": "Segoe UI",
+            "assetHash": null
+          },
+          "binding": {},
+          "options": {},
+          "access": "CASHIER",
+          "groupId": null
+        }
+      ]
+    }
+  ],
+  "workflows": [],
+  "templateOrigins": []
+}

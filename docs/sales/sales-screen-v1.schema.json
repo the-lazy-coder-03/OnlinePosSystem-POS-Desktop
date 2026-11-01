@@ -1,0 +1,606 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "screenId": {
+      "type": "string",
+      "format": "uuid",
+      "not": {
+        "const": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+    "storeId": {
+      "type": "string",
+      "format": "uuid",
+      "not": {
+        "const": "00000000-0000-0000-0000-000000000000"
+      }
+    },
+    "canvas": {
+      "$ref": "#/$defs/canvas"
+    },
+    "pages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/page"
+      },
+      "minItems": 1,
+      "maxItems": 1000
+    },
+    "workflows": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/workflow"
+      }
+    },
+    "templateOrigins": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/origin"
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "screenId",
+    "storeId",
+    "canvas",
+    "pages",
+    "workflows",
+    "templateOrigins"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:onlinepos:sales-screen:1",
+  "title": "OnlinePOS Sales Screen V1",
+  "$comment": "Java ScreenValidation also enforces cross-references, store/catalogue identity, geometry containment, global identity uniqueness, bounded acyclic workflow graphs, grouping and asset existence. Schema 1 supports renderer 1 only.",
+  "$defs": {
+    "canvas": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "width": {
+          "type": "number",
+          "minimum": 320,
+          "maximum": 16384
+        },
+        "height": {
+          "type": "number",
+          "minimum": 240,
+          "maximum": 16384
+        },
+        "snapSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 128
+        }
+      },
+      "required": [
+        "width",
+        "height",
+        "snapSize"
+      ]
+    },
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 16384
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 16384
+        },
+        "w": {
+          "type": "number",
+          "minimum": 4,
+          "maximum": 16384
+        },
+        "h": {
+          "type": "number",
+          "minimum": 4,
+          "maximum": 16384
+        },
+        "z": {
+          "type": "integer",
+          "minimum": -100000,
+          "maximum": 100000
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h",
+        "z"
+      ]
+    },
+    "style": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "background": {
+          "type": "string",
+          "pattern": "^#[a-fA-F0-9]{6}$"
+        },
+        "foreground": {
+          "type": "string",
+          "pattern": "^#[a-fA-F0-9]{6}$"
+        },
+        "fontSize": {
+          "type": "number",
+          "minimum": 8,
+          "maximum": 120
+        },
+        "border": {
+          "type": "string",
+          "pattern": "^#[a-fA-F0-9]{6}$"
+        },
+        "borderWidth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "fontFamily": {
+          "enum": [
+            "Segoe UI",
+            "Arial",
+            "Verdana",
+            "System"
+          ]
+        },
+        "assetHash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "background",
+        "foreground",
+        "fontSize",
+        "border",
+        "borderWidth",
+        "fontFamily",
+        "assetHash"
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "priceId": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        },
+        "targetPageId": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        },
+        "action": {
+          "enum": [
+            "OPEN_DRAFT",
+            "EDIT_LINE",
+            "SET_QUANTITY",
+            "REMOVE_LINE",
+            "CLEAR_DRAFT",
+            "SAVE_DRAFT",
+            "NEW_DRAFT",
+            "SELECT_CUSTOMER",
+            "HOLD",
+            "RESUME",
+            "VOID",
+            "CANCEL_SALE",
+            "DISCOUNT_LINE",
+            "DISCOUNT_ORDER",
+            "CASH_PAYMENT",
+            "CARD_PAYMENT",
+            "PRINT",
+            "REFUND"
+          ]
+        },
+        "workflowId": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        },
+        "assetHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": []
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "type": "string",
+          "pattern": "^(quantity|description|unitPrice|lineTotal|notes)(,(quantity|description|unitPrice|lineTotal|notes))*$"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "alignment": {
+          "enum": [
+            "LEFT",
+            "CENTER",
+            "RIGHT"
+          ]
+        },
+        "photoRole": {
+          "enum": [
+            "navigation",
+            "scaffold"
+          ]
+        }
+      },
+      "required": []
+    },
+    "widget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        },
+        "type": {
+          "enum": [
+            "NAV_BUTTON",
+            "PRODUCT_BUTTON",
+            "FUNCTION_BUTTON",
+            "ORDER_LIST",
+            "KEYPAD",
+            "TEXT",
+            "IMAGE",
+            "CUSTOMER",
+            "TOTALS",
+            "PAYMENT_PANEL",
+            "GROUP"
+          ]
+        },
+        "rect": {
+          "$ref": "#/$defs/rect"
+        },
+        "style": {
+          "$ref": "#/$defs/style"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "options": {
+          "$ref": "#/$defs/options"
+        },
+        "access": {
+          "enum": [
+            "CASHIER",
+            "MANAGER",
+            "OWNER"
+          ],
+          "default": "CASHIER"
+        },
+        "groupId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "not": {
+                "const": "00000000-0000-0000-0000-000000000000"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "rect",
+        "style",
+        "label",
+        "binding",
+        "options",
+        "access",
+        "groupId"
+      ]
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "purpose": {
+          "enum": [
+            "SALES",
+            "PAYMENT",
+            "OTHER"
+          ]
+        },
+        "widgets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/widget"
+          },
+          "maxItems": 10000
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "purpose",
+        "widgets"
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        },
+        "type": {
+          "enum": [
+            "ACTION",
+            "PROMPT",
+            "DECISION",
+            "END"
+          ]
+        },
+        "action": {
+          "anyOf": [
+            {
+              "enum": [
+                "OPEN_DRAFT",
+                "EDIT_LINE",
+                "SET_QUANTITY",
+                "REMOVE_LINE",
+                "CLEAR_DRAFT",
+                "SAVE_DRAFT",
+                "NEW_DRAFT",
+                "SELECT_CUSTOMER",
+                "HOLD",
+                "RESUME",
+                "VOID",
+                "CANCEL_SALE",
+                "DISCOUNT_LINE",
+                "DISCOUNT_ORDER",
+                "CASH_PAYMENT",
+                "CARD_PAYMENT",
+                "PRINT",
+                "REFUND"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "condition": {
+          "enum": [
+            "HAS_SELECTION",
+            "CART_EMPTY",
+            "CUSTOMER_SELECTED",
+            null
+          ]
+        },
+        "prompt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 300
+        },
+        "next": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "not": {
+                "const": "00000000-0000-0000-0000-000000000000"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "otherwise": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid",
+              "not": {
+                "const": "00000000-0000-0000-0000-000000000000"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "action",
+        "condition",
+        "prompt",
+        "next",
+        "otherwise"
+      ]
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "entry": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/step"
+          },
+          "minItems": 1,
+          "maxItems": 256
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "entry",
+        "steps"
+      ]
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "templateId": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pageId": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        },
+        "widgetIds": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "uuid",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "propertyNames": {
+            "type": "string",
+            "format": "uuid",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          }
+        },
+        "base": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/widget"
+          }
+        },
+        "sourcePageId": {
+          "type": "string",
+          "format": "uuid",
+          "not": {
+            "const": "00000000-0000-0000-0000-000000000000"
+          }
+        },
+        "referenceIds": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "uuid",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          },
+          "propertyNames": {
+            "type": "string",
+            "format": "uuid",
+            "not": {
+              "const": "00000000-0000-0000-0000-000000000000"
+            }
+          }
+        },
+        "baseWorkflows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/workflow"
+          }
+        }
+      },
+      "required": [
+        "templateId",
+        "revision",
+        "pageId",
+        "widgetIds",
+        "base",
+        "sourcePageId",
+        "referenceIds",
+        "baseWorkflows"
+      ]
+    }
+  }
+}

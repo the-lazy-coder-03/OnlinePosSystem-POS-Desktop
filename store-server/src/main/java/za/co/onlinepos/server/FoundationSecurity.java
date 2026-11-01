@@ -93,6 +93,12 @@ public class FoundationSecurity {
                           "/api/local/terminal/heartbeat")
                       .authenticated()
                       .requestMatchers(
+                          HttpMethod.GET,
+                          "/api/local/sales-screens/publication",
+                          "/api/local/sales-screens/events",
+                          "/api/local/sales-screens/assets/*")
+                      .hasAuthority("POS_TERMINAL")
+                      .requestMatchers(
                           HttpMethod.POST, "/api/local/auth/login", "/api/local/modules/enter")
                       .hasAuthority("POS_TERMINAL")
                       .requestMatchers(
@@ -100,6 +106,7 @@ public class FoundationSecurity {
                           "/api/local/modules/activity",
                           "/api/local/modules/logout",
                           "/api/local/admin/**",
+                          "/api/local/sales-screens/**",
                           "/api/local/customers",
                           "/api/local/customers/**",
                           "/api/local/catalogue/**")

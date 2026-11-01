@@ -92,17 +92,21 @@ class LocalPostgresIT {
   // Schema-owner-only disposable fixture reset, never an application API or runtime privilege.
   private static void truncateAuditFixtures(String sql) {
     ADMIN.execute("ALTER TABLE pos.audit_record DISABLE TRIGGER immutable_audit_truncate");
+    for (String table : List.of("screen_revision", "screen_publication_event", "screen_asset"))
+      ADMIN.execute("ALTER TABLE pos." + table + " DISABLE TRIGGER USER");
     try {
       ADMIN.execute(sql);
     } finally {
       ADMIN.execute("ALTER TABLE pos.audit_record ENABLE TRIGGER immutable_audit_truncate");
+      for (String table : List.of("screen_revision", "screen_publication_event", "screen_asset"))
+        ADMIN.execute("ALTER TABLE pos." + table + " ENABLE TRIGGER USER");
     }
   }
 
   @BeforeEach
   void fixture() {
     truncateAuditFixtures(
-        "TRUNCATE pos.customer_conflict,pos.catalogue_bootstrap,pos.staff,pos.staff_session,pos.catalog_item,pos.branch_price,pos.local_customer,pos.order_draft,pos.order_line,pos.order_line_extra,pos.payment_metadata,pos.command_receipt,pos.audit_record,pos.outbox_event,pos.inbox_receipt,pos.terminal_printer CASCADE");
+        "TRUNCATE pos.screen_definition,pos.screen_command,pos.screen_asset,pos.customer_conflict,pos.catalogue_bootstrap,pos.staff,pos.staff_session,pos.catalog_item,pos.branch_price,pos.local_customer,pos.order_draft,pos.order_line,pos.order_line_extra,pos.payment_metadata,pos.command_receipt,pos.audit_record,pos.outbox_event,pos.inbox_receipt,pos.terminal_printer CASCADE");
     ADMIN.execute("TRUNCATE pos.pin_throttle,pos.rbac_role CASCADE");
     ADMIN.update("INSERT INTO pos.rbac_role VALUES (1,'MANAGER'),(1,'CASHIER')");
     for (var module : za.co.onlinepos.contracts.PosModule.values())
@@ -126,6 +130,132 @@ class LocalPostgresIT {
     token =
         (String) staff.login(new StaffService.Login("manager", PASSWORD), TERMINAL).get("token");
     manager = staff.authenticate(token, TERMINAL);
+  }
+
+  @Autowired za.co.onlinepos.server.screen.ScreenService screens;
+
+  @Test
+  void salesScreenPublicationIsProtectedIdempotentAndAtomic() {
+    provisionPin("manager", "012345");
+    String screenToken =
+        (String)
+            modules
+                .enter(
+                    new za.co.onlinepos.server.local.ModuleAccess.Entry(
+                        "012345", za.co.onlinepos.contracts.PosModule.ADMINISTRATION, null),
+                    TERMINAL)
+                .get("token");
+    var document =
+        za.co.onlinepos.contracts.screen.ScreenDocuments.starter(
+            screens.store(), screens.catalog());
+    var save =
+        new za.co.onlinepos.contracts.screen.SalesScreens.Save(
+            UUID.randomUUID(), 0, "Store screen", false, document);
+    assertThrows(LocalFailure.class, () -> screens.save(token, TERMINAL, save));
+    var saved = screens.save(screenToken, TERMINAL, save);
+    assertEquals(saved, screens.save(screenToken, TERMINAL, save));
+    assertEquals(
+        1, ADMIN.queryForObject("SELECT count(*) FROM pos.screen_revision", Integer.class));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> runtime.update("UPDATE pos.screen_definition SET name='bypass'"));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () -> runtime.update("UPDATE pos.screen_revision SET document_hash='bypass'"));
+    var publish =
+        new za.co.onlinepos.contracts.screen.SalesScreens.Publish(
+            UUID.randomUUID(), document.screenId(), 1, 0);
+    var published = screens.publish(screenToken, TERMINAL, publish, false);
+    assertEquals(published, screens.publish(screenToken, TERMINAL, publish, false));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            screens.publish(
+                screenToken,
+                TERMINAL,
+                new za.co.onlinepos.contracts.screen.SalesScreens.Publish(
+                    UUID.randomUUID(), document.screenId(), 1, 0),
+                false));
+    ADMIN.execute(
+        "ALTER TABLE pos.audit_record ADD CONSTRAINT fail_screen_publication CHECK(action<>'SALES_SCREEN_PUBLISHED') NOT VALID");
+    var failed =
+        new za.co.onlinepos.contracts.screen.SalesScreens.Publish(
+            UUID.randomUUID(), document.screenId(), 1, 1);
+    try {
+      assertThrows(
+          org.springframework.dao.DataAccessException.class,
+          () -> screens.publish(screenToken, TERMINAL, failed, true));
+      assertEquals(
+          1L,
+          ADMIN.queryForObject("SELECT sequence FROM pos.store_screen_publication", Long.class));
+      assertEquals(
+          0,
+          ADMIN.queryForObject(
+              "SELECT count(*) FROM pos.screen_command WHERE command_id=?",
+              Integer.class,
+              failed.commandId()));
+    } finally {
+      ADMIN.execute("ALTER TABLE pos.audit_record DROP CONSTRAINT fail_screen_publication");
+    }
+    assertEquals(2, screens.publish(screenToken, TERMINAL, failed, true).path("sequence").asInt());
+    assertEquals(2, ((List<?>) screens.events(0)).size());
+  }
+
+  @Test
+  void editingSavedDraftPreservesLineIdentityNotesAndAtomicReceipts() {
+    UUID id = UUID.randomUUID(), line = UUID.randomUUID();
+    operations.createDraft(
+        manager,
+        new LocalCommands.CreateDraft(
+            UUID.randomUUID(),
+            id,
+            List.of(new LocalCommands.DraftLine(line, PRICE, 0, 1, null, "Before"))));
+    var edit =
+        new LocalCommands.EditDraft(
+            UUID.randomUUID(),
+            0,
+            List.of(new LocalCommands.DraftLine(line, PRICE, 0, 2, null, "Please cut")),
+            null);
+    var result = operations.editDraft(manager, id, edit, token);
+    assertEquals(result, operations.editDraft(manager, id, edit, token));
+    var saved = operations.draft(id);
+    assertEquals(1, saved.path("revision").asInt());
+    assertEquals(1, saved.path("lines").size());
+    assertEquals(line.toString(), saved.path("lines").get(0).path("lineId").asText());
+    assertEquals("Please cut", saved.path("lines").get(0).path("notes").asText());
+    assertEquals(0, new BigDecimal("51.00").compareTo(saved.path("total").decimalValue()));
+    assertThrows(
+        org.springframework.dao.DataAccessException.class,
+        () ->
+            runtime.queryForObject(
+                "SELECT pos.prepare_draft_edit(?,?,?,?)",
+                Object.class,
+                "forged-proof",
+                TERMINAL,
+                id,
+                1));
+    assertThrows(
+        LocalFailure.class,
+        () ->
+            operations.editDraft(
+                manager,
+                id,
+                new LocalCommands.EditDraft(UUID.randomUUID(), 0, edit.lines(), null),
+                token));
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            operations.editDraft(
+                manager,
+                id,
+                new LocalCommands.EditDraft(
+                    UUID.randomUUID(),
+                    1,
+                    List.of(
+                        new LocalCommands.DraftLine(line, PRICE, 99, 3, null, "Wrong revision")),
+                    null),
+                token));
+    assertEquals(2, operations.draft(id).path("lines").get(0).path("quantity").asInt());
   }
 
   @Test
@@ -1243,7 +1373,7 @@ class LocalPostgresIT {
                 "INSERT INTO pos.local_customer(customer_id,branch_id,display_name) VALUES (?,2,'wrong branch')",
                 UUID.randomUUID()));
     assertEquals(
-        "18",
+        "19",
         ADMIN.queryForObject(
             "SELECT version FROM public.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1",
             String.class));

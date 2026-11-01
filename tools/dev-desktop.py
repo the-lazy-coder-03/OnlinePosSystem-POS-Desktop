@@ -45,7 +45,11 @@ def main():
     parser.add_argument('--data-dir', type=Path)
     parser.add_argument('--no-build', action='store_true')
     parser.add_argument('--backend-only', action='store_true')
+    parser.add_argument('--sales', action='store_true', help='Open Sales in the development app')
+    parser.add_argument('--categories', action='store_true', help='Open Menu Management categories')
     args = parser.parse_args()
+    if args.sales and args.categories:
+        parser.error('Choose --sales or --categories')
     root = args.data_dir or data_root()
     if not root.is_absolute():
         parser.error('--data-dir must be absolute')
@@ -93,8 +97,13 @@ def main():
         safe_env = {k: v for k, v in env.items() if not k.startswith(('POS_DB_', 'POS_H2_', 'SPRING_DATASOURCE_'))}
         desktop_env = {**safe_env, 'POS_DESKTOP_PROFILE': 'dev', 'POS_DEV_API_TOKEN': config['token'],
                        'POS_DEV_INSTANCE': config['instanceId'], 'POS_DEV_PORT': str(config['port'])}
-        subprocess.run([wrapper, '-pl', 'pos-desktop', 'javafx:run',
-                        '-Ddesktop.mainClass=za.co.onlinepos.desktop.DevDesktop'], cwd=ROOT, env=desktop_env, check=True)
+        desktop_command = [wrapper, '-pl', 'pos-desktop', 'javafx:run',
+                           '-Ddesktop.mainClass=za.co.onlinepos.desktop.DevDesktop']
+        if args.sales:
+            desktop_command.append('-Ddesktop.args=--sales')
+        if args.categories:
+            desktop_command.append('-Ddesktop.args=--categories')
+        subprocess.run(desktop_command, cwd=ROOT, env=desktop_env, check=True)
     finally:
         if backend and backend.poll() is None:
             backend.terminate()

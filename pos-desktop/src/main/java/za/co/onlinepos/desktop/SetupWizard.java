@@ -34,6 +34,7 @@ import za.co.onlinepos.installation.StoreProfile;
  */
 final class SetupWizard extends BorderPane {
   private final SetupPresenter presenter;
+  private final boolean preview;
   private Runnable installedCallback = () -> {};
   private final RadioButton main = new RadioButton("Main computer"),
       till = new RadioButton("Additional till");
@@ -58,7 +59,12 @@ final class SetupWizard extends BorderPane {
   private boolean loading = true, busy, networksLoaded, scanning, checking;
 
   SetupWizard(SetupPresenter presenter) {
+    this(presenter, false);
+  }
+
+  SetupWizard(SetupPresenter presenter, boolean preview) {
     this.presenter = presenter;
+    this.preview = preview;
     setPadding(new Insets(32));
     getStyleClass().add("wizard");
     var brand = new Label("ONLINEPOS");
@@ -224,7 +230,10 @@ final class SetupWizard extends BorderPane {
     stepLabel.setText("Step " + step + " of 3");
     progress.setText("");
     next.setId(step == 3 ? "setup-connect" : "setup-next");
-    next.setText(step == 3 ? (main.isSelected() ? "Set up store" : "Connect till") : "Continue");
+    next.setText(
+        step == 3
+            ? (preview ? "Preview only" : (main.isSelected() ? "Set up store" : "Connect till"))
+            : "Continue");
     if (step == 1) {
       content
           .getChildren()
@@ -271,11 +280,16 @@ final class SetupWizard extends BorderPane {
               + terminal.getText().strip());
       content.getChildren().addAll(new Label("Ready to finish"), summary);
       if (main.isSelected()) {
-        password.setPromptText("At least 5 characters");
+        password.setPromptText(preview ? "Not required in preview" : "At least 5 characters");
+        password.setDisable(preview);
         content.getChildren().add(field("Installation administrator password", password));
         addNetworkChoice();
       }
-      var consent = new Label("Windows may ask for administrator permission to finish setup.");
+      var consent =
+          new Label(
+              preview
+                  ? "Preview only. No installation or connection will be made."
+                  : "Windows may ask for administrator permission to finish setup.");
       consent.setWrapText(true);
       content.getChildren().add(consent);
     }
@@ -391,7 +405,10 @@ final class SetupWizard extends BorderPane {
         return;
       }
       if (networks.getValue() == null) {
-        progress.setText("Select your store network before continuing.");
+        progress.setText(
+            networks.getItems().isEmpty()
+                ? "No private store network found. Check Windows network settings, then go Back and retry."
+                : "Select your store network before continuing.");
         return;
       }
       if (till.isSelected() && selected == null) {
@@ -402,7 +419,7 @@ final class SetupWizard extends BorderPane {
       render();
       return;
     }
-    install();
+    if (!preview) install();
   }
 
   private StoreProfile profile() {
@@ -459,7 +476,8 @@ final class SetupWizard extends BorderPane {
     back.setManaged(step > 1);
     back.setDisable(busy);
     next.setDisable(
-        loading
+        (preview && step == 3)
+            || loading
             || busy
             || checking
             || (existing != null && existing.role() == InstallationRole.BACKUP_MASTER));

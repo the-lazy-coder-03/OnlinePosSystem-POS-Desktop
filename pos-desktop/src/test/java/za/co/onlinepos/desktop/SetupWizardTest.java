@@ -56,6 +56,15 @@ class SetupWizardTest {
 
     Fixture(Installation saved, List<LanPolicy> networks, List<MasterSelection> discovered)
         throws Exception {
+      this(saved, networks, discovered, false);
+    }
+
+    Fixture(
+        Installation saved,
+        List<LanPolicy> networks,
+        List<MasterSelection> discovered,
+        boolean preview)
+        throws Exception {
       var presenter =
           new SetupPresenter(null, null, null, executor, null) {
             @Override
@@ -86,7 +95,7 @@ class SetupWizardTest {
               return CompletableFuture.failedFuture(new IllegalStateException("Simulated failure"));
             }
           };
-      wizard = GridModulesLiveTest.fx(() -> new SetupWizard(presenter));
+      wizard = GridModulesLiveTest.fx(() -> new SetupWizard(presenter, preview));
       stage =
           GridModulesLiveTest.fx(
               () -> {
@@ -299,6 +308,49 @@ class SetupWizardTest {
             f.click("#setup-connect");
           });
       f.act(() -> assertEquals(789, f.requests.getFirst().branchId()));
+    }
+  }
+
+  @Test
+  void previewCanNavigateButNeverRequestsPasswordsOrSubmitsInstallation() throws Exception {
+    try (var f = new Fixture(null, List.of(LAN), List.of(), true)) {
+      f.act(
+          () -> {
+            ((RadioButton) f.wizard.lookup("#setup-main")).fire();
+            f.click("#setup-next");
+          });
+      f.act(
+          () -> {
+            f.text("#setup-store-name", "Preview Store");
+            f.click("#setup-next");
+            var finish = (Button) f.wizard.lookup("#setup-connect");
+            assertTrue(finish.isDisabled());
+            assertEquals("Preview only", finish.getText());
+            assertTrue(f.wizard.lookup("#setup-password").isDisabled());
+            finish.fire();
+            assertTrue(f.requests.isEmpty());
+            f.click("#setup-back");
+            assertEquals(
+                "Preview Store", ((TextField) f.wizard.lookup("#setup-store-name")).getText());
+          });
+    }
+  }
+
+  @Test
+  void missingNetworkShowsActionableFeedbackAndNeverSubmits() throws Exception {
+    try (var f = new Fixture(null, List.of(), List.of())) {
+      f.act(
+          () -> {
+            ((RadioButton) f.wizard.lookup("#setup-main")).fire();
+            f.click("#setup-next");
+          });
+      f.act(
+          () -> {
+            f.text("#setup-store-name", "Oak Street Pizza");
+            f.click("#setup-next");
+            assertTrue(f.message().contains("No private store network"));
+            assertTrue(f.requests.isEmpty());
+          });
     }
   }
 

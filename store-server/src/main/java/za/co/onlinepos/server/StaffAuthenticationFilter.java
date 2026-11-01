@@ -43,6 +43,13 @@ public final class StaffAuthenticationFilter extends OncePerRequestFilter {
       throws IOException, ServletException {
     response.setHeader("Cache-Control", "no-store");
     String path = request.getRequestURI();
+    if (request.getMethod().equals("GET")
+        && (path.equals("/api/local/sales-screens/publication")
+            || path.equals("/api/local/sales-screens/events")
+            || path.matches("/api/local/sales-screens/assets/[a-f0-9]{64}"))) {
+      chain.doFilter(request, response);
+      return;
+    }
     if (List.of(
             "/api/local/health",
             "/api/local/setup/pair",
@@ -73,12 +80,15 @@ public final class StaffAuthenticationFilter extends OncePerRequestFilter {
         || request.getContentLengthLong()
             > (path.matches("/api/local/branches/[1-9][0-9]*/catalogue/bootstrap")
                 ? 16777216
-                : path.startsWith("/api/local/catalogue/items/") ? 1048576 : 65536)) {
+                : path.startsWith("/api/local/sales-screens/")
+                    ? 4194304
+                    : path.startsWith("/api/local/catalogue/items/") ? 1048576 : 65536)) {
       response.sendError(413);
       return;
     }
     if ((path.startsWith("/api/local/modules/") && !path.equals("/api/local/modules/enter"))
         || path.startsWith("/api/local/admin/")
+        || path.startsWith("/api/local/sales-screens/")
         || path.startsWith("/api/local/catalogue/")
         || path.equals("/api/local/customers")
         || path.startsWith("/api/local/customers/")) {

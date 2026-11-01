@@ -50,4 +50,24 @@ public class ItemCustomizationEndpoints {
   public Object draft(HttpServletRequest r, @RequestBody LocalCommands.CreateDraft draft) {
     return service.createDraft(token(r), terminal(r), draft, operations);
   }
+
+  @GetMapping("/drafts")
+  public Object listDrafts(HttpServletRequest r) {
+    return service.listDrafts(token(r), terminal(r), operations);
+  }
+
+  @GetMapping("/drafts/{id}")
+  public Object readDraft(
+      HttpServletRequest r,
+      @org.springframework.web.bind.annotation.PathVariable("id") java.util.UUID id) {
+    return service.readDraft(token(r), terminal(r), id, operations);
+  }
+
+  @PutMapping("/drafts/{id}")
+  public Object editDraft(
+      HttpServletRequest r,
+      @org.springframework.web.bind.annotation.PathVariable("id") java.util.UUID id,
+      @RequestBody LocalCommands.EditDraft draft) {
+    return service.editDraft(token(r), terminal(r), id, draft, operations);
+  }
 }

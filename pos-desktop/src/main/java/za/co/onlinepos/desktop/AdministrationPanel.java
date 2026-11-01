@@ -46,6 +46,7 @@ import za.co.onlinepos.installation.TrustedStoreClient;
 /** Session-local forms; closing clears inputs and ignores all outstanding responses. */
 final class AdministrationPanel extends BorderPane implements AutoCloseable {
   private AuditPanel auditPanel;
+  private ScreenBuilderEditor screenBuilder;
   private StoreManagementPanel storePanel;
   private final javafx.animation.Timeline terminalRefresh = new javafx.animation.Timeline();
   private final ModuleGateway gateway;
@@ -209,6 +210,9 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
     navigation.getChildren().clear();
     tabs.clear();
     addTab("Overview", null);
+    if (gateway instanceof DevGateway
+        || context.path("owner").asBoolean()
+        || allowed("sales_screen.edit")) addTab("Sales Screen Builder", null);
     if (allowed("staff.manage")) addTab("Staff", "staff.manage");
     if (allowed("rbac.manage")) {
       addTab("Roles & Permissions", "rbac.manage");
@@ -246,6 +250,10 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
           selectTab(name);
           switch (name) {
             case "Overview" -> refreshContext();
+            case "Sales Screen Builder" -> {
+              screenBuilder = new ScreenBuilderEditor(gateway, executor, token);
+              body.setCenter(screenBuilder);
+            }
             case "Staff" -> {
               staffPage = 0;
               loadStaff(null);
@@ -435,6 +443,11 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
   }
 
   private boolean discard() {
+    if (screenBuilder != null) {
+      if (!screenBuilder.confirmClose()) return false;
+      screenBuilder.close();
+      screenBuilder = null;
+    }
     if (storePanel != null) {
       if (!storePanel.confirmClose()) return false;
       storePanel.close();
@@ -1000,6 +1013,7 @@ final class AdministrationPanel extends BorderPane implements AutoCloseable {
 
   @Override
   public void close() {
+    if (screenBuilder != null) screenBuilder.close();
     closed = true;
     if (storePanel != null) {
       storePanel.close();

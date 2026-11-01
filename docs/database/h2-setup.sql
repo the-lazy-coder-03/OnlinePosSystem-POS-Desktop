@@ -692,6 +692,19 @@ CREATE TABLE dev_meta.customer_conflicts (id UUID PRIMARY KEY, revision BIGINT N
 CREATE TABLE dev_meta.drafts (order_id UUID PRIMARY KEY, reference VARCHAR(64) NOT NULL UNIQUE, revision BIGINT NOT NULL DEFAULT 0, status VARCHAR(20) NOT NULL DEFAULT 'DRAFT', customer_id UUID REFERENCES dev_meta.customer_identity(customer_id), snapshot CHARACTER LARGE OBJECT NOT NULL, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP);
 -- END V3__grid_modules.sql
 
+-- BEGIN V4__exact_catalogue_money (fresh-empty-schema SQL projection of Java migration)
+-- Existing-value preflight remains in db.h2.V4__exact_catalogue_money; use Flyway for upgrades.
+ALTER TABLE public.branch_menu_item_price ALTER COLUMN price DECIMAL(18,2);
+ALTER TABLE public.modifier_option ALTER COLUMN additional_price DECIMAL(18,2);
+ALTER TABLE public.branch_burger_component_price ALTER COLUMN price DECIMAL(18,2);
+ALTER TABLE public.salad_ingredients ALTER COLUMN price DECIMAL(18,2);
+ALTER TABLE public.branch_pizza_price ALTER COLUMN price DECIMAL(18,2);
+ALTER TABLE public.branch_extra_price ALTER COLUMN price DECIMAL(18,2);
+ALTER TABLE public.branch_pizza_base_option_price ALTER COLUMN price DECIMAL(18,2);
+ALTER TABLE public.special ALTER COLUMN bundle_price DECIMAL(18,2);
+ALTER TABLE public.special_addon ALTER COLUMN price DECIMAL(18,2);
+-- END V4__exact_catalogue_money
+
 -- BEGIN V5__customer_aliases.sql
 CREATE TABLE dev_meta.customer_aliases (alias_id UUID PRIMARY KEY, customer_id UUID NOT NULL REFERENCES dev_meta.customer_identity(customer_id));
 ALTER TABLE dev_meta.customer_identity ADD COLUMN field_times CHARACTER LARGE OBJECT NOT NULL DEFAULT '{}';
@@ -828,3 +841,16 @@ CREATE TABLE public.burger_item_component_override (
  PRIMARY KEY(burger_id,component_id)
 );
 -- END V12__product_recipe_overrides.sql
+
+-- BEGIN V13__sales_screen_builder.sql
+CREATE TABLE dev_meta.screen_definition(screen_id UUID PRIMARY KEY,branch_id INT NOT NULL REFERENCES public.branch(branch_id),name VARCHAR(160) NOT NULL,template BOOLEAN NOT NULL,revision BIGINT NOT NULL DEFAULT 0);
+CREATE TABLE dev_meta.screen_revision(screen_id UUID NOT NULL REFERENCES dev_meta.screen_definition(screen_id),revision BIGINT NOT NULL,document_text CHARACTER LARGE OBJECT NOT NULL,document_hash CHAR(64) NOT NULL,actor_id UUID NOT NULL REFERENCES dev_meta.local_staff(staff_id),created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(screen_id,revision));
+CREATE TABLE dev_meta.store_screen_publication(branch_id INT PRIMARY KEY REFERENCES public.branch(branch_id),store_id UUID NOT NULL UNIQUE,sequence BIGINT NOT NULL DEFAULT 0,screen_id UUID,revision BIGINT,FOREIGN KEY(screen_id,revision) REFERENCES dev_meta.screen_revision(screen_id,revision));
+CREATE TABLE dev_meta.screen_publication_event(event_id UUID PRIMARY KEY,branch_id INT NOT NULL REFERENCES public.branch(branch_id),store_id UUID NOT NULL,sequence BIGINT NOT NULL,screen_id UUID NOT NULL,revision BIGINT NOT NULL,document_hash CHAR(64) NOT NULL,published_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE(branch_id,sequence),FOREIGN KEY(screen_id,revision) REFERENCES dev_meta.screen_revision(screen_id,revision));
+CREATE TABLE dev_meta.screen_command(command_id UUID PRIMARY KEY,branch_id INT NOT NULL,actor_id UUID NOT NULL,terminal_identity VARCHAR(512) NOT NULL,payload_hash CHAR(64) NOT NULL,result CHARACTER LARGE OBJECT NOT NULL);
+CREATE TABLE dev_meta.screen_asset(asset_hash CHAR(64) PRIMARY KEY,branch_id INT NOT NULL,media_type VARCHAR(30) NOT NULL,content BINARY LARGE OBJECT NOT NULL);
+
+CREATE TRIGGER screen_revision_immutable BEFORE UPDATE, DELETE ON dev_meta.screen_revision FOR EACH ROW CALL "za.co.onlinepos.server.screen.ImmutableScreenTrigger";
+CREATE TRIGGER screen_publication_event_immutable BEFORE UPDATE, DELETE ON dev_meta.screen_publication_event FOR EACH ROW CALL "za.co.onlinepos.server.screen.ImmutableScreenTrigger";
+CREATE TRIGGER screen_asset_immutable BEFORE UPDATE, DELETE ON dev_meta.screen_asset FOR EACH ROW CALL "za.co.onlinepos.server.screen.ImmutableScreenTrigger";
+-- END V13__sales_screen_builder.sql

@@ -19,3 +19,6 @@ logs/
 **/administrator.json
 
 __pycache__/
+
+# Generated sample-preview cache
+/pos-desktop/unused-preview-root/

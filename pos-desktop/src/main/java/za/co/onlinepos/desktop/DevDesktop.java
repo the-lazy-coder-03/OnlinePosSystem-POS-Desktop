@@ -60,6 +60,16 @@ public final class DevDesktop {
                                           executor);
                                   current.set(home);
                                   root.setCenter(home);
+                                  if (java.util.Arrays.asList(args).contains("--categories")) {
+                                    ((javafx.scene.control.Button) home.lookup("#module-CATALOGUE"))
+                                        .fire();
+                                    ((CataloguePanel) home.lookup("#catalogue-panel"))
+                                        .openCategories();
+                                  }
+                                  if (java.util.Arrays.asList(args).contains("--sales"))
+                                    ((javafx.scene.control.Button)
+                                            home.lookup("#module-SALES_ORDERS"))
+                                        .fire();
                                 } else {
                                   var setup = new StoreManagementPanel(gateway, executor, load[0]);
                                   current.set(setup);

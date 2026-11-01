@@ -175,6 +175,22 @@ public class DevGridEndpoints {
     return drafts.create(command);
   }
 
+  @GetMapping("/catalogue/items/drafts")
+  public Object listSavedDrafts() {
+    return read(() -> drafts.list());
+  }
+
+  @GetMapping("/catalogue/items/drafts/{id}")
+  public Object readSavedDraft(@PathVariable("id") UUID id) {
+    return read(() -> drafts.get(id));
+  }
+
+  @org.springframework.web.bind.annotation.PutMapping("/catalogue/items/drafts/{id}")
+  public Object editSavedDraft(
+      @PathVariable("id") UUID id, @RequestBody LocalCommands.EditDraft command) {
+    return drafts.edit(id, command);
+  }
+
   @GetMapping("/drafts/{id}")
   public Object draft(@PathVariable("id") UUID id) {
     return read(() -> drafts.get(id));

@@ -105,4 +105,21 @@ public class ModuleGateway {
       if (body != null) Arrays.fill(body, (byte) 0);
     }
   }
+
+  public JsonNode screens(String path, String method, Object payload, String token)
+      throws Exception {
+    var secrets = secrets();
+    byte[] body = payload == null ? null : JsonFiles.JSON.writeValueAsBytes(payload);
+    try {
+      return JsonFiles.JSON.readTree(
+          client.screenRequest(
+              trust(secrets), secrets, "/api/local/sales-screens/" + path, method, body, token));
+    } finally {
+      if (body != null) Arrays.fill(body, (byte) 0);
+    }
+  }
+
+  Path screenCache() {
+    return root.resolve("sales-screen-cache.json");
+  }
 }

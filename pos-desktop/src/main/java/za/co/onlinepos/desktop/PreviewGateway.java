@@ -21,6 +21,48 @@ final class PreviewGateway extends ModuleGateway {
     super(Path.of("unused-preview-root"));
   }
 
+  static final java.util.UUID SCREEN_STORE =
+      java.util.UUID.fromString("198f13ec-1d88-4b46-aa73-b2c6f4317421");
+
+  @Override
+  public JsonNode screens(String path, String method, Object payload, String token) {
+    if (method.equals("GET") && path.equals("publication"))
+      return JsonFiles.JSON.valueToTree(Map.of("storeId", SCREEN_STORE, "sequence", 0));
+    if (method.equals("GET") && path.startsWith("events?after="))
+      return JsonFiles.JSON.valueToTree(List.of());
+    if (method.equals("GET") && path.equals("context"))
+      return JsonFiles.JSON.valueToTree(
+          Map.of(
+              "storeId",
+              SCREEN_STORE,
+              "catalog",
+              itemPreview.request("items", "GET", null),
+              "definitions",
+              List.of(),
+              "capabilities",
+              za.co.onlinepos.contracts.screen.SalesScreens.draftCapabilities()));
+    if (method.equals("POST") && path.equals("preview")) {
+      var doc = (za.co.onlinepos.contracts.screen.SalesScreens.Document) payload;
+      try {
+        var catalog =
+            JsonFiles.JSON.treeToValue(
+                itemPreview.request("items", "GET", null),
+                za.co.onlinepos.contracts.ItemCustomization.Catalog.class);
+        return JsonFiles.JSON.valueToTree(
+            Map.of(
+                "warnings",
+                za.co.onlinepos.contracts.screen.ScreenValidation.validate(
+                    doc,
+                    SCREEN_STORE,
+                    catalog.products().keySet(),
+                    za.co.onlinepos.contracts.screen.ScreenValidation.Limits.standard())));
+      } catch (Exception e) {
+        throw new IllegalArgumentException(e.getMessage());
+      }
+    }
+    throw new IllegalStateException("Isolated preview cannot save, publish or open store records.");
+  }
+
   @Override
   public void check() {}
 

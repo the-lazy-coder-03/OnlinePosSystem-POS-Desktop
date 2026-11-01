@@ -107,6 +107,22 @@ public class LocalOperations {
   }
 
   public JsonNode createDraft(StaffService.Actor actor, LocalCommands.CreateDraft draft) {
+    return writeDraft(actor, draft, null, null);
+  }
+
+  public JsonNode editDraft(
+      StaffService.Actor actor, UUID id, LocalCommands.EditDraft edit, String token) {
+    if (edit.expectedRevision() < 0)
+      throw new LocalFailure(400, "Expected draft revision required");
+    return writeDraft(
+        actor,
+        new LocalCommands.CreateDraft(edit.commandId(), id, edit.lines(), edit.customerId()),
+        edit.expectedRevision(),
+        token);
+  }
+
+  private JsonNode writeDraft(
+      StaffService.Actor actor, LocalCommands.CreateDraft draft, Long expected, String token) {
     CommandJournal.requireUuid(draft.orderId());
     if (draft.lines() == null || draft.lines().isEmpty() || draft.lines().size() > 100)
       throw new LocalFailure(400, "Draft requires 1 to 100 lines");
@@ -123,17 +139,31 @@ public class LocalOperations {
     return journal.execute(
         draft.commandId(),
         actor,
-        "DRAFT_CREATED",
-        draftPayload(draft),
+        expected == null ? "DRAFT_CREATED" : "DRAFT_EDITED",
+        expected == null
+            ? draftPayload(draft)
+            : Map.of("draft", draftPayload(draft), "expectedRevision", expected),
         () -> {
           if (!jdbc.queryForObject(
               "SELECT active AND NOT archived FROM pos.store_identity", Boolean.class))
             throw new LocalFailure(409, "This store is disabled; new drafts are unavailable");
-          if (jdbc.queryForObject(
-                  "SELECT count(*) FROM pos.order_draft WHERE sync_id=?",
-                  Integer.class,
-                  draft.orderId())
-              > 0) throw new LocalFailure(409, "Order identity already exists");
+          if (expected == null) {
+            if (jdbc.queryForObject(
+                    "SELECT count(*) FROM pos.order_draft WHERE sync_id=?",
+                    Integer.class,
+                    draft.orderId())
+                > 0) throw new LocalFailure(409, "Order identity already exists");
+          } else {
+            var existing =
+                jdbc.queryForList(
+                    "SELECT revision,state FROM pos.order_draft WHERE branch_id=? AND sync_id=? FOR UPDATE",
+                    identity.branchId(),
+                    draft.orderId());
+            if (existing.size() != 1
+                || !"DRAFT".equals(existing.getFirst().get("state"))
+                || ((Number) existing.getFirst().get("revision")).longValue() != expected)
+              throw new LocalFailure(409, "Draft changed or cannot be edited");
+          }
           if (draft.customerId() != null) {
             if (jdbc.queryForObject(
                     "SELECT count(*) FROM pos.staff_role r JOIN pos.role_permission p ON p.branch_id=r.branch_id AND p.role_name=r.role_name WHERE r.branch_id=? AND r.staff_id=? AND p.permission='customers.view'",
@@ -197,17 +227,36 @@ public class LocalOperations {
                     "definition",
                     journal.parse((String) row.get("definition")),
                     "customization",
-                    quote));
+                    quote,
+                    "notes",
+                    line.notes()));
           }
           if (total.precision() > 19)
             throw new LocalFailure(400, "Draft total exceeds supported amount");
           String reference = "DRAFT-" + identity.branchId() + "-" + draft.orderId();
-          jdbc.update(
-              "INSERT INTO pos.order_draft(sync_id,branch_id,state,provisional_reference,total) VALUES (?,?,'DRAFT',?,?)",
-              draft.orderId(),
-              identity.branchId(),
-              reference,
-              total);
+          if (expected == null) {
+            jdbc.update(
+                "INSERT INTO pos.order_draft(sync_id,branch_id,state,provisional_reference,total) VALUES (?,?,'DRAFT',?,?)",
+                draft.orderId(),
+                identity.branchId(),
+                reference,
+                total);
+          } else {
+            if (token == null || token.isBlank())
+              throw new LocalFailure(401, "Authenticated draft session required");
+            jdbc.queryForObject(
+                "SELECT pos.prepare_draft_edit(?,?,?,?)",
+                Object.class,
+                CommandJournal.digest(token),
+                actor.terminal(),
+                draft.orderId(),
+                expected);
+            jdbc.update(
+                "UPDATE pos.order_draft SET total=? WHERE branch_id=? AND sync_id=?",
+                total,
+                identity.branchId(),
+                draft.orderId());
+          }
           for (var snapshot : snapshots) {
             jdbc.update(
                 "INSERT INTO pos.order_line(line_id,branch_id,order_id,price_id,description,quantity,unit_price,price_revision,snapshot) VALUES (?,?,?,?,?,?,?,?,?::jsonb)",
@@ -240,7 +289,7 @@ public class LocalOperations {
                       "state",
                       "DRAFT",
                       "revision",
-                      0,
+                      expected == null ? 0 : expected + 1,
                       "total",
                       total,
                       "reference",
@@ -264,12 +313,20 @@ public class LocalOperations {
           }
           journal.event(
               actor,
-              "DRAFT_CREATED",
+              expected == null ? "DRAFT_CREATED" : "DRAFT_EDITED",
               draft.orderId(),
-              0,
+              expected == null ? 0 : expected + 1,
               draft.commandId(),
               result,
-              Map.of("orderId", draft.orderId(), "state", "DRAFT", "revision", 0, "total", total));
+              Map.of(
+                  "orderId",
+                  draft.orderId(),
+                  "state",
+                  "DRAFT",
+                  "revision",
+                  expected == null ? 0 : expected + 1,
+                  "total",
+                  total));
           return journal.tree(result);
         });
   }
@@ -288,6 +345,7 @@ public class LocalOperations {
                   value.put("priceId", line.priceId());
                   value.put("expectedPriceRevision", line.expectedPriceRevision());
                   value.put("quantity", line.quantity());
+                  if (!line.notes().isBlank()) value.put("notes", line.notes());
                   if (line.customization() != null)
                     value.put("customization", line.customization());
                   return value;
@@ -295,6 +353,13 @@ public class LocalOperations {
             .toList());
     if (draft.customerId() != null) payload.put("customerId", draft.customerId());
     return payload;
+  }
+
+  public JsonNode drafts() {
+    return journal.tree(
+        jdbc.queryForList(
+            "SELECT sync_id AS \"orderId\",provisional_reference AS reference,revision,total,state FROM pos.order_draft WHERE branch_id=? AND state='DRAFT' ORDER BY created_at DESC LIMIT 100",
+            identity.branchId()));
   }
 
   public JsonNode draft(UUID id) {
